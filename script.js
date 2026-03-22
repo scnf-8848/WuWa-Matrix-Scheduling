@@ -90,10 +90,10 @@ function loadData() {
     if (data.teams) {
       teams = data.teams;
     } else {
-      teams = Array.from({ length: 12 }, () => ({ slots: [null, null, null] }));
+      teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     }
   } else {
-    teams = Array.from({ length: 12 }, () => ({ slots: [null, null, null] }));
+    teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
   }
 }
 function saveData() {
@@ -345,6 +345,42 @@ function renderTeamRoleList() {
     });
 
     item.addEventListener('dragover', (e) => e.preventDefault());
+
+    // 添加点击事件，实现点击角色自动添加到队伍
+    item.addEventListener('click', () => {
+      const currentRemaining = getRemainingUses(char);
+      if (currentRemaining <= 0) {
+        return;
+      }
+      
+      // 寻找第一个空槽位
+      let foundSlot = false;
+      for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
+        const team = teams[teamIndex];
+        // 检查队伍中是否已存在该角色
+        const teamHasChar = team.slots.some(slot => slot && slot.name === char.name);
+        if (teamHasChar) {
+          continue;
+        }
+        
+        for (let slotIndex = 0; slotIndex < team.slots.length; slotIndex++) {
+          if (team.slots[slotIndex] === null) {
+            // 找到空槽位，添加角色
+            team.slots[slotIndex] = { name: char.name, avatar: char.avatar };
+            foundSlot = true;
+            break;
+          }
+        }
+        if (foundSlot) {
+          break;
+        }
+      }
+      
+      if (foundSlot) {
+        saveData();
+        renderTeamPage();
+      }
+    });
 
     list.appendChild(item);
   });
