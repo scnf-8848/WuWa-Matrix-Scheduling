@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鸣潮矩阵排版助手
+    </title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+</head>
+<body>
+    <nav>
+        <button id="roleBtn">角色</button>
+        <button id="teamBtn">队伍</button>
+        <button id="clearBtn" class="clear-all-btn">清空数据</button>
+    </nav>
+    <div id="rolePage" class="page">
+        <div class="left-panel">
+            <div id="roleList" class="role-list"></div>
+        </div>
+        <div class="right-panel">
+            <div id="roleDetail" class="role-detail">
+                <p>请选择一个角色查看详情</p>
+            </div>
+        </div>
+    </div>
+    <div id="teamPage" class="page hidden">
+        <div class="left-panel">
+            <div class="role-list-container">
+                <div id="teamRoleList" class="role-list"></div>
+            </div>
+        </div>
+        <div class="right-panel">
+            <div id="teamSection" class="team-section">
+                <!-- 队伍将在这里动态生成 -->
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
