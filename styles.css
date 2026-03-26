@@ -252,16 +252,16 @@ nav button:hover {
 .team-role-item.not-available { opacity:.4; cursor:not-allowed; }
 .role-detail { text-align:center; background:#2a2a2a; padding:20px; border-radius:10px; }
 .role-detail img { width:150px; height:150px; margin-bottom:20px; }
-.team-section { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; padding: 15px; }
-.team-row { position:relative; display:flex; flex-direction: column; align-items:flex-start; gap:10px; background:#2a2a2a; padding:15px 25px 15px 15px; border-radius:5px; min-height:88px; transition:transform .2s,opacity .2s; flex-wrap: wrap; }
+.team-section { display:flex; flex-direction:column; gap:10px; padding:15px; }
+.team-row { position:relative; display:flex; align-items:center; gap:10px; background:#2a2a2a; padding:10px 20px 10px 10px; border-radius:5px; min-height:60px; transition:transform .2s,opacity .2s; flex-wrap: wrap; }
 .team-row.dragging { opacity:.8; transform:translateY(-10px); box-shadow:0 4px 8px rgba(0,0,0,.3); }
 .team-header { display: flex; align-items: center; flex-shrink: 0; margin-right: 15px; }
 .team-handle { cursor:move; font-size:20px; color:#fff; flex-shrink:0; margin-right:10px; }
 .team-label { font-size:14px; font-weight:600; z-index:10; flex-shrink:0; }
-.team-slots { display:flex; gap:10px; width: 100%; justify-content:center; flex-wrap: wrap; }
-.slot { width: 70px; height: 70px; border:2px dashed #555; display:flex; align-items:center; justify-content:center; position:relative; background:#333; border-radius:5px; }
+.team-slots { display:flex; gap:8px; flex:1; justify-content:center; flex-wrap: wrap; }
+.slot { width: 50px; height: 50px; border:2px dashed #555; display:flex; align-items:center; justify-content:center; position:relative; background:#333; border-radius:5px; }
 .slot img { max-width:100%; max-height:100%; }
-.slot .attr { position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,.7); color:#fff; padding:2px 4px; font-size:10px; border-radius:3px; }
+.slot .attr { position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,.7); color:#fff; padding:1px 3px; font-size:8px; border-radius:2px; }
 
 .delete-btn {
   position: absolute;
@@ -314,7 +314,6 @@ nav button:hover {
 }
 
 .add-team-btn {
-  grid-column: 1 / -1;
   margin-top: 15px;
   padding: 10px;
   background: #4ade80;
