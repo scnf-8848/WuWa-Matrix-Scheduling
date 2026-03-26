@@ -60,6 +60,7 @@ let currentSelectedRoleIndex = null;
 
 let teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
 let sortableInstance = null;
+let showAttr = true;
 
 // 初始化角色数据
 function initializeCharacters() {
@@ -122,6 +123,17 @@ document.getElementById('roleBtn').addEventListener('click', () => showPage('rol
 document.getElementById('teamBtn').addEventListener('click', () => showPage('team'));
 document.getElementById('clearBtn').addEventListener('click', clearAllData);
 
+// 处理显示/隐藏属性的切换
+document.getElementById('attrToggle').addEventListener('change', function() {
+  showAttr = this.checked;
+  // 重新渲染当前页面
+  if (document.getElementById('rolePage').classList.contains('hidden')) {
+    renderTeamPage();
+  } else {
+    renderRoleList();
+  }
+});
+
 function showPage(page) {
   document.getElementById('rolePage').classList.toggle('hidden', page !== 'role');
   document.getElementById('teamPage').classList.toggle('hidden', page !== 'team');
@@ -181,10 +193,12 @@ function renderRoleList() {
     item.appendChild(nameOverlay);
 
     // 添加属性显示
-    const attr = document.createElement('div');
-    attr.className = 'attr';
-    attr.textContent = `${char.chain}+${char.weapon}`;
-    item.appendChild(attr);
+    if (showAttr) {
+      const attr = document.createElement('div');
+      attr.className = 'attr';
+      attr.textContent = `${char.chain}+${char.weapon}`;
+      item.appendChild(attr);
+    }
 
     // 添加状态按钮
     const statusBtn = document.createElement('div');
@@ -325,10 +339,12 @@ function renderTeamRoleList() {
     nameOverlay.textContent = char.name;
     item.appendChild(nameOverlay);
 
-    const attr = document.createElement('div');
-    attr.className = 'attr';
-    attr.textContent = `${char.chain}+${char.weapon}`;
-    item.appendChild(attr);
+    if (showAttr) {
+      const attr = document.createElement('div');
+      attr.className = 'attr';
+      attr.textContent = `${char.chain}+${char.weapon}`;
+      item.appendChild(attr);
+    }
 
     const uses = document.createElement('div');
     uses.className = `uses ${remaining > 0 ? 'green' : 'red'}`;
@@ -466,18 +482,18 @@ function renderTeams() {
       });
 
       if (slot) {
-        const img = document.createElement('img');
-        img.src = slot.avatar;
-        img.alt = slot.name;
-        slotDiv.appendChild(img);
+      const img = document.createElement('img');
+      img.src = slot.avatar;
+      img.alt = slot.name;
+      slotDiv.appendChild(img);
 
-        const char = characters.find(c => c.name === slot.name);
-        if (char) {
-          const attr = document.createElement('div');
-          attr.className = 'attr';
-          attr.textContent = `${char.chain}+${char.weapon}`;
-          slotDiv.appendChild(attr);
-        }
+      const char = characters.find(c => c.name === slot.name);
+      if (char && showAttr) {
+        const attr = document.createElement('div');
+        attr.className = 'attr';
+        attr.textContent = `${char.chain}+${char.weapon}`;
+        slotDiv.appendChild(attr);
+      }
 
         // 添加删除按钮
         const deleteBtn = document.createElement('div');
