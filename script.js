@@ -47,8 +47,9 @@ const characterTemplates = [
   { name: '卜灵', avatar: 'character/卜灵.png', totalUses: 2 },
   { name: '琳奈', avatar: 'character/琳奈.png', totalUses: 1 },
   { name: '莫宁', avatar: 'character/莫宁.png', totalUses: 2 },
+  { name: '达妮娅', avatar: 'character/达妮娅.png', totalUses: 1 },
   { name: '西格莉卡', avatar: 'character/西格莉卡.png', totalUses: 1 },
-
+  { name: '绯雪', avatar: 'character/绯雪.png', totalUses: 1 },
 
   
   // ...后续手动追加
