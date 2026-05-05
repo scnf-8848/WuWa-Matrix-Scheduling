@@ -1,8 +1,6 @@
 // 角色模板数据（固定不变）
 const characterTemplates = [
   { name: '漂泊者', avatar: 'character/漂泊者.png', totalUses: 1 },
-
-
   { name: '秧秧', avatar: 'character/秧秧.png', totalUses: 1 },
   { name: '炽霞', avatar: 'character/炽霞.png', totalUses: 1 },
   { name: '维里奈', avatar: 'character/维里奈.png', totalUses: 2 },
@@ -50,6 +48,7 @@ const characterTemplates = [
   { name: '达妮娅', avatar: 'character/达妮娅.png', totalUses: 1 },
   { name: '西格莉卡', avatar: 'character/西格莉卡.png', totalUses: 1 },
   { name: '绯雪', avatar: 'character/绯雪.png', totalUses: 1 },
+  { name: 'None', avatar: 'character/None.png', totalUses: 1 },
 
   
   // ...后续手动追加
@@ -68,12 +67,11 @@ function initializeCharacters() {
   const savedUserData = localStorage.getItem('userCharacterData');
   if (savedUserData) {
     const userData = JSON.parse(savedUserData);
-    characters = characterTemplates.map((template, index) => {
-      const userChar = userData[index] || { owned: false, chain: 0, weapon: 0 };
+    characters = characterTemplates.map((template) => {
+      const userChar = userData[template.name] || { owned: false, chain: 0, weapon: 0 };
       return { ...template, ...userChar };
     });
   } else {
-    // 新用户：所有角色默认不拥有
     characters = characterTemplates.map(template => ({
       ...template,
       owned: false,
@@ -99,12 +97,14 @@ function loadData() {
   }
 }
 function saveData() {
-  // 只保存用户特定的数据
-  const userData = characters.map(char => ({
-    owned: char.owned,
-    chain: char.chain,
-    weapon: char.weapon
-  }));
+  const userData = {};
+  characters.forEach(char => {
+    userData[char.name] = {
+      owned: char.owned,
+      chain: char.chain,
+      weapon: char.weapon
+    };
+  });
   localStorage.setItem('userCharacterData', JSON.stringify(userData));
   localStorage.setItem('gameScheduler', JSON.stringify({ teams }));
 }
@@ -358,7 +358,7 @@ function renderTeamRoleList() {
         e.preventDefault();
         return;
       }
-      e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'character', index }));
+      e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'character', name: char.name }));
     });
 
     item.addEventListener('dragover', (e) => e.preventDefault());
@@ -458,11 +458,11 @@ function renderTeams() {
         e.preventDefault();
         const data = JSON.parse(e.dataTransfer.getData('text/plain'));
         if (data.type === 'character') {
-          const char = characters[data.index];
+          const char = characters.find(c => c.name === data.name);
+          if (!char) return;
           const rem = getRemainingUses(char);
           const teamHasChar = team.slots.some(slot => slot && slot.name === char.name);
           if ((rem > 0 || (slot && slot.name === char.name)) && !teamHasChar) {
-            // 替换槽位角色，原角色释放回角色池
             team.slots[slotIndex] = { name: char.name, avatar: char.avatar };
             saveData();
             renderTeamPage();
