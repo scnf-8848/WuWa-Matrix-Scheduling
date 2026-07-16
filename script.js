@@ -51,8 +51,8 @@ const characterTemplates = [
   { name: '洛瑟拉', avatar: 'character/洛瑟拉.png', totalUses: 1 },
   { name: '露西', avatar: 'character/露西.png', totalUses: 1 },
   { name: '丽贝卡', avatar: 'character/丽贝卡.png', totalUses: 1 },
-  { name: '穗穗', avatar: 'character/Silhouette.png', totalUses: 2 },
-  { name: '秧秧·玄翎', avatar: 'character/Silhouette.png', totalUses: 1 },
+  { name: '秧秧·玄翎', avatar: 'character/秧秧·玄翎.png', totalUses: 1 },
+  { name: '穗穗', avatar: 'character/穗穗.png', totalUses: 2 },
   { name: 'None', avatar: 'character/Silhouette.png', totalUses: 1 },
 
   
@@ -66,6 +66,7 @@ let currentSelectedRoleIndex = null;
 let teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
 let sortableInstance = null;
 let showAttr = true;
+let extraUseChar = null;
 
 // 初始化角色数据
 function initializeCharacters() {
@@ -97,8 +98,10 @@ function loadData() {
     } else {
       teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     }
+    extraUseChar = data.extraUseChar || null;
   } else {
     teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
+    extraUseChar = null;
   }
 }
 function saveData() {
@@ -111,7 +114,7 @@ function saveData() {
     };
   });
   localStorage.setItem('userCharacterData', JSON.stringify(userData));
-  localStorage.setItem('gameScheduler', JSON.stringify({ teams }));
+  localStorage.setItem('gameScheduler', JSON.stringify({ teams, extraUseChar }));
 }
 
 // 清空所有数据
@@ -120,6 +123,7 @@ function clearAllData() {
     localStorage.removeItem('userCharacterData');
     localStorage.removeItem('gameScheduler');
     loadData();
+    initExtraUseSelect();
     showPage('role');
   }
 }
@@ -138,6 +142,52 @@ document.getElementById('attrToggle').addEventListener('change', function() {
   } else {
     renderRoleList();
   }
+});
+
+// 初始化额外疲劳值角色下拉列表
+function initExtraUseSelect() {
+  const select = document.getElementById('extraUseSelect');
+  select.innerHTML = '<option value="">无</option>';
+  characterTemplates.forEach(char => {
+    const option = document.createElement('option');
+    option.value = char.name;
+    option.textContent = char.name;
+    select.appendChild(option);
+  });
+  select.value = extraUseChar || '';
+}
+
+// 处理额外疲劳值角色切换
+document.getElementById('extraUseSelect').addEventListener('change', function() {
+  const newChar = this.value || null;
+  const oldChar = extraUseChar;
+  
+  extraUseChar = newChar;
+  
+  // 如果取消了一个额外疲劳值角色，检查编队中是否存在超额的该角色
+  if (oldChar && oldChar !== newChar) {
+    const char = characters.find(c => c.name === oldChar);
+    if (char) {
+      const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.name === oldChar).length;
+      // 如果使用次数超过原始totalUses，移除最后一个该角色
+      if (used > char.totalUses) {
+        for (let i = teams.length - 1; i >= 0; i--) {
+          let removed = false;
+          for (let j = teams[i].slots.length - 1; j >= 0; j--) {
+            if (teams[i].slots[j] && teams[i].slots[j].name === oldChar) {
+              teams[i].slots[j] = null;
+              removed = true;
+              break;
+            }
+          }
+          if (removed) break;
+        }
+      }
+    }
+  }
+  
+  saveData();
+  renderTeamPage();
 });
 
 function showPage(page) {
@@ -317,7 +367,8 @@ function updateWeapon(index, value) {
 
 function getRemainingUses(char) {
   const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.name === char.name).length;
-  return Math.max(0, char.totalUses - used);
+  const total = char.totalUses + (extraUseChar === char.name ? 1 : 0);
+  return Math.max(0, total - used);
 }
 
 // 队伍页面渲染
@@ -353,7 +404,11 @@ function renderTeamRoleList() {
     }
 
     const uses = document.createElement('div');
-    uses.className = `uses ${remaining > 0 ? 'green' : 'red'}`;
+    if (extraUseChar === char.name) {
+      uses.className = 'uses yellow';
+    } else {
+      uses.className = `uses ${remaining > 0 ? 'green' : 'red'}`;
+    }
     uses.textContent = `${remaining}`;
     item.appendChild(uses);
 
@@ -570,4 +625,5 @@ function renderTeams() {
 
 // 初始化
 loadData();
+initExtraUseSelect();
 showPage('role')

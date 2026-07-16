@@ -94,6 +94,23 @@ input:checked + .toggle-slider {
 input:checked + .toggle-slider:before {
   transform: translateX(20px);
 }
+.extra-use-container {
+  display: flex;
+  align-items: center;
+  margin-right: 15px;
+}
+.extra-use-container select {
+  background-color: #333;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.extra-use-container select:hover {
+  background-color: #555;
+}
 .clear-all-btn {
   margin-left: auto;
   background-color: #dc3545;
@@ -299,6 +316,7 @@ input:checked + .toggle-slider:before {
 .uses { position:absolute; top:5px; right:5px; min-width:18px; text-align:center; padding:2px 4px; font-size:12px; border-radius:4px; }
 .uses.green { background:#16a34a; }
 .uses.red { background:#dc2626; }
+.uses.yellow { background:#eab308; }
 .team-role-item.not-available { opacity:.4; cursor:not-allowed; }
 .role-detail { text-align:center; background:#2a2a2a; padding:20px; border-radius:10px; }
 .role-detail img { width:150px; height:150px; margin-bottom:20px; }
