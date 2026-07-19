@@ -121,10 +121,12 @@ input:checked + .toggle-slider:before {
 .page {
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
+  overflow: hidden;
 }
 .hidden { display: none; }
 .left-panel { flex: 1; min-width: 300px; padding: 20px; border-right: 1px solid #333; background:#1a1a1a; overflow-y: auto; }
+.left-panel::-webkit-scrollbar { display: none; }
+.left-panel { -ms-overflow-style: none; scrollbar-width: none; }
 .role-list-container {
   border: 1px solid #333;
   border-radius: 5px;
@@ -182,6 +184,8 @@ input:checked + .toggle-slider:before {
   }
 }
 .right-panel { flex: 1; min-width: 300px; padding: 20px; background:#1a1a1a; overflow-y: auto; }
+.right-panel::-webkit-scrollbar { display: none; }
+.right-panel { -ms-overflow-style: none; scrollbar-width: none; }
 
 #teamSection {
   box-sizing: border-box;
@@ -410,6 +414,16 @@ input:checked + .toggle-slider:before {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid #333;
+    flex: none;
+    overflow-y: auto;
+  }
+  
+  .left-panel {
+    max-height: 40vh;
+  }
+  
+  .right-panel {
+    flex: 1;
   }
   
   .team-row {
