@@ -66,7 +66,7 @@ let currentSelectedRoleIndex = null;
 let teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
 let sortableInstance = null;
 let showAttr = true;
-let extraUseChar = null;
+let extraUseChars = [];
 
 // 初始化角色数据
 function initializeCharacters() {
@@ -98,10 +98,13 @@ function loadData() {
     } else {
       teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     }
-    extraUseChar = data.extraUseChar || null;
+    extraUseChars = data.extraUseChars || [];
+    if (!extraUseChars.length && data.extraUseChar) {
+      extraUseChars = [data.extraUseChar];
+    }
   } else {
     teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
-    extraUseChar = null;
+    extraUseChars = [];
   }
 }
 function saveData() {
@@ -114,7 +117,7 @@ function saveData() {
     };
   });
   localStorage.setItem('userCharacterData', JSON.stringify(userData));
-  localStorage.setItem('gameScheduler', JSON.stringify({ teams, extraUseChar }));
+  localStorage.setItem('gameScheduler', JSON.stringify({ teams, extraUseChars }));
 }
 
 // 清空所有数据
@@ -123,7 +126,6 @@ function clearAllData() {
     localStorage.removeItem('userCharacterData');
     localStorage.removeItem('gameScheduler');
     loadData();
-    initExtraUseSelect();
     showPage('role');
   }
 }
@@ -142,52 +144,6 @@ document.getElementById('attrToggle').addEventListener('change', function() {
   } else {
     renderRoleList();
   }
-});
-
-// 初始化额外疲劳值角色下拉列表
-function initExtraUseSelect() {
-  const select = document.getElementById('extraUseSelect');
-  select.innerHTML = '<option value="">无</option>';
-  characterTemplates.forEach(char => {
-    const option = document.createElement('option');
-    option.value = char.name;
-    option.textContent = char.name;
-    select.appendChild(option);
-  });
-  select.value = extraUseChar || '';
-}
-
-// 处理额外疲劳值角色切换
-document.getElementById('extraUseSelect').addEventListener('change', function() {
-  const newChar = this.value || null;
-  const oldChar = extraUseChar;
-  
-  extraUseChar = newChar;
-  
-  // 如果取消了一个额外疲劳值角色，检查编队中是否存在超额的该角色
-  if (oldChar && oldChar !== newChar) {
-    const char = characters.find(c => c.name === oldChar);
-    if (char) {
-      const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.name === oldChar).length;
-      // 如果使用次数超过原始totalUses，移除最后一个该角色
-      if (used > char.totalUses) {
-        for (let i = teams.length - 1; i >= 0; i--) {
-          let removed = false;
-          for (let j = teams[i].slots.length - 1; j >= 0; j--) {
-            if (teams[i].slots[j] && teams[i].slots[j].name === oldChar) {
-              teams[i].slots[j] = null;
-              removed = true;
-              break;
-            }
-          }
-          if (removed) break;
-        }
-      }
-    }
-  }
-  
-  saveData();
-  renderTeamPage();
 });
 
 function showPage(page) {
@@ -323,6 +279,10 @@ function showRoleDetail(index) {
       <label>专武:</label>
       <div class="attr-buttons">${weaponButtons}</div>
     </div>
+    <div class="attr-group">
+      <label>额外疲劳值:</label>
+      <input type="checkbox" id="extraUseCheckbox" ${extraUseChars.includes(char.name) ? 'checked' : ''} onchange="toggleExtraUse(${index})">
+    </div>
   `;
 }
 function toggleOwned(index, owned) {
@@ -365,9 +325,47 @@ function updateWeapon(index, value) {
   }
 }
 
+function toggleExtraUse(index) {
+  const char = characters[index];
+  const isChecked = document.getElementById('extraUseCheckbox').checked;
+  
+  if (isChecked) {
+    if (!extraUseChars.includes(char.name)) {
+      extraUseChars.push(char.name);
+    }
+  } else {
+    const idx = extraUseChars.indexOf(char.name);
+    if (idx !== -1) {
+      extraUseChars.splice(idx, 1);
+      
+      const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.name === char.name).length;
+      if (used > char.totalUses) {
+        for (let i = teams.length - 1; i >= 0; i--) {
+          let removed = false;
+          for (let j = teams[i].slots.length - 1; j >= 0; j--) {
+            if (teams[i].slots[j] && teams[i].slots[j].name === char.name) {
+              teams[i].slots[j] = null;
+              removed = true;
+              break;
+            }
+          }
+          if (removed) break;
+        }
+      }
+    }
+  }
+  
+  saveData();
+  renderRoleList();
+  if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
+  if (currentSelectedRoleIndex === index) {
+    showRoleDetail(index);
+  }
+}
+
 function getRemainingUses(char) {
   const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.name === char.name).length;
-  const total = char.totalUses + (extraUseChar === char.name ? 1 : 0);
+  const total = char.totalUses + (extraUseChars.includes(char.name) ? 1 : 0);
   return Math.max(0, total - used);
 }
 
@@ -404,7 +402,7 @@ function renderTeamRoleList() {
     }
 
     const uses = document.createElement('div');
-    if (extraUseChar === char.name) {
+    if (extraUseChars.includes(char.name)) {
       uses.className = 'uses yellow';
     } else {
       uses.className = `uses ${remaining > 0 ? 'green' : 'red'}`;
@@ -625,5 +623,4 @@ function renderTeams() {
 
 // 初始化
 loadData();
-initExtraUseSelect();
 showPage('role')

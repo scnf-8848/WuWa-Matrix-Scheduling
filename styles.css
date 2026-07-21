@@ -94,23 +94,6 @@ input:checked + .toggle-slider {
 input:checked + .toggle-slider:before {
   transform: translateX(20px);
 }
-.extra-use-container {
-  display: flex;
-  align-items: center;
-  margin-right: 15px;
-}
-.extra-use-container select {
-  background-color: #333;
-  color: #fff;
-  border: 1px solid #555;
-  border-radius: 5px;
-  padding: 4px 8px;
-  font-size: 14px;
-  cursor: pointer;
-}
-.extra-use-container select:hover {
-  background-color: #555;
-}
 .clear-all-btn {
   margin-left: auto;
   background-color: #dc3545;
@@ -281,7 +264,14 @@ input:checked + .toggle-slider:before {
 .attr-group label {
   color: #fff;
   font-weight: 600;
-  min-width: 50px;
+  min-width: 70px;
+}
+
+#extraUseCheckbox {
+  width: 20px;
+  height: 20px;
+  accent-color: #4ade80;
+  cursor: pointer;
 }
 
 .attr-buttons {
