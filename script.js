@@ -1,67 +1,22 @@
-// 角色模板数据（固定不变）
-const characterTemplates = [
-  { name: '漂泊者', avatar: 'character/漂泊者.png', totalUses: 1 },
-  { name: '秧秧', avatar: 'character/秧秧.png', totalUses: 1 },
-  { name: '炽霞', avatar: 'character/炽霞.png', totalUses: 1 },
-  { name: '维里奈', avatar: 'character/维里奈.png', totalUses: 2 },
-  { name: '白芷', avatar: 'character/白芷.png', totalUses: 2 },
-  { name: '散华', avatar: 'character/散华.png', totalUses: 1 },
-  { name: '安可', avatar: 'character/安可.png', totalUses: 1 },
-  { name: '桃祈', avatar: 'character/桃祈.png', totalUses: 1 },
-  { name: '丹瑾', avatar: 'character/丹瑾.png', totalUses: 1 },
-  { name: '忌炎', avatar: 'character/忌炎.png', totalUses: 1 },
-  { name: '秋水', avatar: 'character/秋水.png', totalUses: 1 },
-  { name: '莫特斐', avatar: 'character/莫特斐.png', totalUses: 1 },
-  { name: '凌阳', avatar: 'character/凌阳.png', totalUses: 1 },
-  { name: '渊武', avatar: 'character/渊武.png', totalUses: 1 },
-  { name: '吟霖', avatar: 'character/吟霖.png', totalUses: 1 },
-  { name: '卡卡罗', avatar: 'character/卡卡罗.png', totalUses: 1 },
-  { name: '鉴心', avatar: 'character/鉴心.png', totalUses: 1 },
-  { name: '今汐', avatar: 'character/今汐.png', totalUses: 1 },
-  { name: '相里要', avatar: 'character/相里要.png', totalUses: 1 },
-  { name: '长离', avatar: 'character/长离.png', totalUses: 1 },
-  { name: '折枝', avatar: 'character/折枝.png', totalUses: 1 },
-  { name: '守岸人', avatar: 'character/守岸人.png', totalUses: 2 },
-  { name: '椿', avatar: 'character/椿.png', totalUses: 1 },
-  { name: '灯灯', avatar: 'character/灯灯.png', totalUses: 1 },
-  { name: '釉瑚', avatar: 'character/釉瑚.png', totalUses: 1 },
-  { name: '珂莱塔', avatar: 'character/珂莱塔.png', totalUses: 1 },
-  { name: '洛可可', avatar: 'character/洛可可.png', totalUses: 1 },
-  { name: '坎特蕾拉', avatar: 'character/坎特蕾拉.png', totalUses: 1 },
-  { name: '夏空', avatar: 'character/夏空.png', totalUses: 1 },
-  { name: '赞妮', avatar: 'character/赞妮.png', totalUses: 1 },
-  { name: '卡提希娅', avatar: 'character/卡提希娅.png', totalUses: 1 },
-  { name: '弗洛洛', avatar: 'character/弗洛洛.png', totalUses: 1 },
-  { name: '布兰特', avatar: 'character/布兰特.png', totalUses: 1 },
-  { name: '菲比', avatar: 'character/菲比.png', totalUses: 1 },
-  { name: '露帕', avatar: 'character/露帕.png', totalUses: 1 },
-  { name: '尤诺', avatar: 'character/尤诺.png', totalUses: 1 },
-  { name: '奥古斯塔', avatar: 'character/奥古斯塔.png', totalUses: 1 },
-  { name: '爱弥斯', avatar: 'character/爱弥斯.png', totalUses: 1 },
-  { name: '陆·赫斯', avatar: 'character/陆·赫斯.png', totalUses: 1 },
-  { name: '嘉贝莉娜', avatar: 'character/嘉贝莉娜.png', totalUses: 1 },
-  { name: '仇远', avatar: 'character/仇远.png', totalUses: 1 },
-  { name: '千咲', avatar: 'character/千咲.png', totalUses: 1 },
-  { name: '卜灵', avatar: 'character/卜灵.png', totalUses: 2 },
-  { name: '琳奈', avatar: 'character/琳奈.png', totalUses: 1 },
-  { name: '莫宁', avatar: 'character/莫宁.png', totalUses: 2 },
-  { name: '达妮娅', avatar: 'character/达妮娅.png', totalUses: 1 },
-  { name: '西格莉卡', avatar: 'character/西格莉卡.png', totalUses: 1 },
-  { name: '绯雪', avatar: 'character/绯雪.png', totalUses: 1 },
-  { name: '洛瑟拉', avatar: 'character/洛瑟拉.png', totalUses: 1 },
-  { name: '露西', avatar: 'character/露西.png', totalUses: 1 },
-  { name: '丽贝卡', avatar: 'character/丽贝卡.png', totalUses: 1 },
-  { name: '秧秧·玄翎', avatar: 'character/秧秧·玄翎.png', totalUses: 1 },
-  { name: '穗穗', avatar: 'character/穗穗.png', totalUses: 2 },
-  { name: '清宵', avatar: 'character/清宵.png', totalUses: 1 },
-  { name: '景燃', avatar: 'character/景燃.png', totalUses: 1 },
-  { name: '心', avatar: 'character/心.png', totalUses: 1 },
-  { name: '锁暝', avatar: 'character/锁暝.png', totalUses: 1 },
-  { name: 'None', avatar: 'character/Silhouette.png', totalUses: 1 },
+// 图片扩展名回退列表
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
 
-  
-  // ...后续手动追加
-];
+// 根据角色名生成头像路径
+function getAvatar(name) {
+  return `character/${name}.png`;
+}
+
+// 图片加载失败时，按顺序尝试其他扩展名
+function handleImgError(img) {
+  const match = img.src.match(/^(.*)\.([^.]+)$/);
+  if (!match) return;
+  const basePath = match[1];
+  const currentExt = match[2].toLowerCase();
+  const currentIndex = IMAGE_EXTENSIONS.indexOf(currentExt);
+  if (currentIndex >= 0 && currentIndex < IMAGE_EXTENSIONS.length - 1) {
+    img.src = `${basePath}.${IMAGE_EXTENSIONS[currentIndex + 1]}`;
+  }
+}
 
 // 用户角色数据（动态生成）
 let characters = [];
@@ -79,11 +34,12 @@ function initializeCharacters() {
     const userData = JSON.parse(savedUserData);
     characters = characterTemplates.map((template) => {
       const userChar = userData[template.name] || { owned: false, chain: 0, weapon: 0 };
-      return { ...template, ...userChar };
+      return { ...template, avatar: getAvatar(template.name), ...userChar };
     });
   } else {
     characters = characterTemplates.map(template => ({
       ...template,
+      avatar: getAvatar(template.name),
       owned: false,
       chain: 0,
       weapon: 0
@@ -201,7 +157,7 @@ function renderRoleList() {
   characters.forEach((char, index) => {
     const item = document.createElement('div');
     item.className = 'role-item';
-    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}">`;
+    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}" onerror="handleImgError(this)">`;
 
     const nameOverlay = document.createElement('div');
     nameOverlay.className = 'name-overlay';
@@ -273,7 +229,7 @@ function showRoleDetail(index) {
   }
   
   detail.innerHTML = `
-    <img src="${char.avatar}" alt="${char.name}">
+    <img src="${char.avatar}" alt="${char.name}" onerror="handleImgError(this)">
     <h3>${char.name}</h3>
     <div class="attr-group">
       <label>链数:</label>
@@ -391,7 +347,7 @@ function renderTeamRoleList() {
     item.className = 'team-role-item';
     if (remaining === 0) item.classList.add('not-available');
     item.draggable = remaining > 0;
-    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}">`;
+    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}" onerror="handleImgError(this)">`;
 
     const nameOverlay = document.createElement('div');
     nameOverlay.className = 'name-overlay';
@@ -546,8 +502,9 @@ function renderTeams() {
 
       if (slot) {
       const img = document.createElement('img');
-      img.src = slot.avatar;
+      img.src = slot.avatar || getAvatar(slot.name);
       img.alt = slot.name;
+      img.onerror = function() { handleImgError(this); };
       slotDiv.appendChild(img);
 
       const char = characters.find(c => c.name === slot.name);
