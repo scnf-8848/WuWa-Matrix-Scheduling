@@ -53,6 +53,10 @@ const characterTemplates = [
   { name: '丽贝卡', avatar: 'character/丽贝卡.png', totalUses: 1 },
   { name: '秧秧·玄翎', avatar: 'character/秧秧·玄翎.png', totalUses: 1 },
   { name: '穗穗', avatar: 'character/穗穗.png', totalUses: 2 },
+  { name: '清宵', avatar: 'character/清宵.png', totalUses: 1 },
+  { name: '景燃', avatar: 'character/景燃.png', totalUses: 1 },
+  { name: '心', avatar: 'character/心.png', totalUses: 1 },
+  { name: '锁暝', avatar: 'character/锁暝.png', totalUses: 1 },
   { name: 'None', avatar: 'character/Silhouette.png', totalUses: 1 },
 
   
