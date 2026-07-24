@@ -107,6 +107,7 @@ document.getElementById('clearBtn').addEventListener('click', clearAllData);
 document.getElementById('userSelect').addEventListener('change', function() {
   saveData();
   currentUser = parseInt(this.value, 10);
+  localStorage.setItem('currentUser', currentUser.toString());
   currentSelectedRoleIndex = null;
   document.getElementById('roleDetail').innerHTML = '<p>请选择一个角色查看详情</p>';
   loadData();
