@@ -26,10 +26,11 @@ let teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
 let sortableInstance = null;
 let showAttr = true;
 let extraUseChars = [];
+let currentUser = 1;
 
 // 初始化角色数据
 function initializeCharacters() {
-  const savedUserData = localStorage.getItem('userCharacterData');
+  const savedUserData = localStorage.getItem(`userCharacterData_${currentUser}`);
   if (savedUserData) {
     const userData = JSON.parse(savedUserData);
     characters = characterTemplates.map((template) => {
@@ -50,7 +51,8 @@ function initializeCharacters() {
 // 存读本地
 function loadData() {
   initializeCharacters();
-  const saved = localStorage.getItem('gameScheduler');
+  
+  const saved = localStorage.getItem(`gameScheduler_${currentUser}`);
   if (saved) {
     const data = JSON.parse(saved);
     if (data.teams) {
@@ -76,16 +78,22 @@ function saveData() {
       weapon: char.weapon
     };
   });
-  localStorage.setItem('userCharacterData', JSON.stringify(userData));
-  localStorage.setItem('gameScheduler', JSON.stringify({ teams, extraUseChars }));
+  localStorage.setItem(`userCharacterData_${currentUser}`, JSON.stringify(userData));
+  localStorage.setItem(`gameScheduler_${currentUser}`, JSON.stringify({ teams, extraUseChars }));
+  localStorage.setItem('currentUser', currentUser.toString());
 }
 
 // 清空所有数据
 function clearAllData() {
-  if (confirm('确定要清空所有用户数据吗？此操作将清除所有角色和队伍数据，且无法恢复。')) {
-    localStorage.removeItem('userCharacterData');
-    localStorage.removeItem('gameScheduler');
+  if (confirm('确定要清空所有用户数据吗？此操作将清除所有用户的角色和队伍数据，且无法恢复。')) {
+    for (let i = 1; i <= 5; i++) {
+      localStorage.removeItem(`userCharacterData_${i}`);
+      localStorage.removeItem(`gameScheduler_${i}`);
+    }
+    localStorage.removeItem('currentUser');
+    currentUser = 1;
     loadData();
+    document.getElementById('userSelect').value = '1';
     showPage('role');
   }
 }
@@ -94,6 +102,20 @@ function clearAllData() {
 document.getElementById('roleBtn').addEventListener('click', () => showPage('role'));
 document.getElementById('teamBtn').addEventListener('click', () => showPage('team'));
 document.getElementById('clearBtn').addEventListener('click', clearAllData);
+
+// 处理用户切换
+document.getElementById('userSelect').addEventListener('change', function() {
+  saveData();
+  currentUser = parseInt(this.value, 10);
+  currentSelectedRoleIndex = null;
+  document.getElementById('roleDetail').innerHTML = '<p>请选择一个角色查看详情</p>';
+  loadData();
+  if (document.getElementById('rolePage').classList.contains('hidden')) {
+    showPage('team');
+  } else {
+    showPage('role');
+  }
+});
 
 // 处理显示/隐藏属性的切换
 document.getElementById('attrToggle').addEventListener('change', function() {
@@ -583,5 +605,24 @@ function renderTeams() {
 }
 
 // 初始化
+const savedCurrentUser = localStorage.getItem('currentUser');
+if (savedCurrentUser) {
+  currentUser = parseInt(savedCurrentUser, 10);
+} else {
+  currentUser = 1;
+  localStorage.setItem('currentUser', '1');
+  
+  const oldUserData = localStorage.getItem('userCharacterData');
+  const oldGameData = localStorage.getItem('gameScheduler');
+  if (oldUserData) {
+    localStorage.setItem('userCharacterData_1', oldUserData);
+    localStorage.removeItem('userCharacterData');
+  }
+  if (oldGameData) {
+    localStorage.setItem('gameScheduler_1', oldGameData);
+    localStorage.removeItem('gameScheduler');
+  }
+}
 loadData();
+document.getElementById('userSelect').value = currentUser.toString();
 showPage('role')

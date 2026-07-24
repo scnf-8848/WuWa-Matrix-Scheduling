@@ -95,8 +95,21 @@ input:checked + .toggle-slider:before {
   transform: translateX(20px);
 }
 .clear-all-btn {
-  margin-left: auto;
   background-color: #dc3545;
+}
+#userSelect {
+  margin-left: auto;
+  margin-right: 10px;
+  background-color: #333;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+#userSelect:hover {
+  background-color: #555;
 }
 .clear-all-btn:hover {
   background-color: #c82333;
