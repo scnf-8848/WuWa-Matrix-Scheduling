@@ -18,6 +18,7 @@ const characterTemplates = [
 
 
   { name: '维里奈', totalUses: 2 },
+  { name: '安可', totalUses: 1 },
   { name: '凌阳', totalUses: 1 },
   { name: '鉴心', totalUses: 1 }, 
   { name: '卡卡罗', totalUses: 1 },
