@@ -1,9 +1,9 @@
-// 图片扩展名回退列表
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+// 图片扩展名回退列表（webp 优先）
+const IMAGE_EXTENSIONS = ['webp', 'png', 'jpg', 'jpeg', 'gif'];
 
 // 根据角色名生成头像路径
 function getAvatar(name) {
-  return `character/${name}.png`;
+  return `character/${name}.webp`;
 }
 
 // 图片加载失败时，按顺序尝试其他扩展名
