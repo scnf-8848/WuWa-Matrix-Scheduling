@@ -61,9 +61,6 @@ function loadData() {
       teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     }
     extraUseChars = data.extraUseChars || [];
-    if (!extraUseChars.length && data.extraUseChar) {
-      extraUseChars = [data.extraUseChar];
-    }
   } else {
     teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     extraUseChars = [];
@@ -424,7 +421,7 @@ function renderTeamRoleList() {
         for (let slotIndex = 0; slotIndex < team.slots.length; slotIndex++) {
           if (team.slots[slotIndex] === null) {
             // 找到空槽位，添加角色
-            team.slots[slotIndex] = { name: char.name, avatar: char.avatar };
+            team.slots[slotIndex] = { name: char.name };
             foundSlot = true;
             break;
           }
@@ -504,7 +501,7 @@ function renderTeams() {
           const rem = getRemainingUses(char);
           const teamHasChar = team.slots.some(slot => slot && slot.name === char.name);
           if ((rem > 0 || (slot && slot.name === char.name)) && !teamHasChar) {
-            team.slots[slotIndex] = { name: char.name, avatar: char.avatar };
+            team.slots[slotIndex] = { name: char.name };
             saveData();
             renderTeamPage();
           }
@@ -525,7 +522,7 @@ function renderTeams() {
 
       if (slot) {
       const img = document.createElement('img');
-      img.src = slot.avatar || getAvatar(slot.name);
+      img.src = getAvatar(slot.name);
       img.alt = slot.name;
       img.onerror = function() { handleImgError(this); };
       slotDiv.appendChild(img);
@@ -612,17 +609,6 @@ if (savedCurrentUser) {
 } else {
   currentUser = 1;
   localStorage.setItem('currentUser', '1');
-  
-  const oldUserData = localStorage.getItem('userCharacterData');
-  const oldGameData = localStorage.getItem('gameScheduler');
-  if (oldUserData) {
-    localStorage.setItem('userCharacterData_1', oldUserData);
-    localStorage.removeItem('userCharacterData');
-  }
-  if (oldGameData) {
-    localStorage.setItem('gameScheduler_1', oldGameData);
-    localStorage.removeItem('gameScheduler');
-  }
 }
 loadData();
 document.getElementById('userSelect').value = currentUser.toString();
