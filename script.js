@@ -236,7 +236,7 @@ function showRoleDetail(index) {
   const char = characters[index];
   const detail = document.getElementById('roleDetail');
   
-  // 生成链数按钮
+  // 生成共鸣链按钮
   let chainButtons = '';
   for (let i = 0; i <= 6; i++) {
     chainButtons += `<button class="attr-btn ${char.chain === i ? 'active' : ''}" onclick="updateChain(${index}, ${i})"><strong>${i}</strong></button>`;
@@ -252,7 +252,7 @@ function showRoleDetail(index) {
     <img src="${char.avatar}" alt="${char.name}" onerror="handleImgError(this)">
     <h3>${char.name}</h3>
     <div class="attr-group">
-      <label>链数:</label>
+      <label>共鸣链:</label>
       <div class="attr-buttons">${chainButtons}</div>
     </div>
     <div class="attr-group">
