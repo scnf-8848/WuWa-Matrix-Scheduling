@@ -141,7 +141,6 @@ function updateLayoutScale() {
   const gap = 10;        // 垂直行间距
   const gapCols = 20;    // 两列间水平间距
   const maxSlot = 55;    // 槽位尺寸上限
-  const minSlot = 44;    // 槽位尺寸下限（提高缩放后的可读性，避免头像过小）
   if (availH <= 0 || width <= 0) {
     section.style.setProperty('--slot-size', `${maxSlot}px`);
     return;
@@ -181,26 +180,38 @@ function updateLayoutScale() {
   const slotFromV = budgetRow - padV;
   // 横向约束：槽位(3个+2间隙)、头部(句柄+编号)、清空按钮、行内边距 之和不能超过所在列宽
   const colW = (width - gapCols) / 2;
-  const headerW = 82;    // 句柄 + 队伍编号 + 边距
-  const clearW = 50;     // 清空按钮 + 左边距
   const rowPad = 18;     // team-row 左右内边距
-  const slotFromW = (colW - headerW - clearW - rowPad - 16) / 3;
+  // 竖向堆叠布局（手机/平板窄屏，≤768px）下，句柄/标签与清空按钮独占一行，
+  // 不再与 slots 同排占用横向空间，因此不扣除这两者，避免 slot 被过度缩小
+  const vertical = window.matchMedia('(max-width: 768px)').matches;
+  const slotFromW = vertical
+    ? (colW - rowPad - 16) / 3
+    : (colW - 82 - 50 - rowPad - 16) / 3;
 
-  // 先算“恰好能放进（竖向+横向）”的尺寸，作为硬性上限
-  let size = Math.min(maxSlot, slotFromV, slotFromW);
+  // 槽位尺寸完全由 row（竖向）与列宽（横向）共同约束，不再设置下限兜底，
+  // 从而在小屏/窄屏下随 row 收缩，避免初始尺寸过大导致显示异常
+  let size;
   if (overflow) {
-    // 超容量的缩放分支：允许槽位缩小到“一屏放得下”，不再拿 minSlot 硬撑，
-    // 上限回收至 slotFromV，保证行高总和恰好 ≤ section 高度，杜绝最后一行被裁掉
-    size = Math.max(4, Math.min(size, Math.max(0, slotFromV)));
+    // 超容量场景：强制一屏，槽位以竖向行高与横向列宽为共同上限
+    size = Math.max(4, Math.min(slotFromV, slotFromW));
   } else {
-    // 自然摆放场景：还有富余空间，用 minSlot 兜底抬高可读性
-    size = Math.max(minSlot, size);
+    // 自然摆放场景：以 row 允许的高度与列宽为上限，尽可能放大
+    size = Math.max(4, Math.min(maxSlot, slotFromV, slotFromW));
   }
   const row = size + padV;
+
+  // 头部（手柄+编号）与清空按钮的 UI 缩放比例：
+  // 随 slot 变小而缩小，但幅度小于行本身，仅用于小屏时的协调性，不参与 slot 尺寸计算
+  const uiScaleSizeMin = 22;   // UI 比例缩到最小时的 slot 尺寸参照
+  const uiScaleMin = 0.78;     // 极端缩小时的最小 UI 比例（保持可读）
+  const uiScale = Math.max(uiScaleMin, Math.min(1,
+      uiScaleMin + (size - uiScaleSizeMin) / (maxSlot - uiScaleSizeMin) * (1 - uiScaleMin)));
 
   section.style.setProperty('--slot-size', `${size}px`);
   // 动态上下内边距：每侧 = padV/2，随着行高缩小而收窄
   section.style.setProperty('--row-pad-v', `${padV / 2}px`);
+  // 动态 UI 缩放比例（手柄/编号/清空按钮），随行缩小而略有收窄
+  section.style.setProperty('--row-ui-scale', `${uiScale.toFixed(3)}`);
   // 显式声明网格，保障“左列优先填满再排右列”，且每列可收缩以防溢出
   section.style.gridTemplateRows = `repeat(${perCol}, ${row}px)`;
   section.style.gridTemplateColumns = 'minmax(0,1fr) minmax(0,1fr)';
