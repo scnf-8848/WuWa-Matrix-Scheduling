@@ -179,7 +179,7 @@ input:checked + .toggle-slider:before {
     box-shadow: 0 0 30px rgba(74, 222, 128, 0.7);
   }
 }
-.right-panel { flex: 1; min-width: 300px; padding: 20px; background:#1a1a1a; overflow-y: auto; }
+.right-panel { position: relative; flex: 1; min-width: 300px; padding: 20px; background:#1a1a1a; overflow-y: auto; display: flex; flex-direction: column; }
 .right-panel::-webkit-scrollbar { display: none; }
 .right-panel { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -327,14 +327,21 @@ input:checked + .toggle-slider:before {
 .team-role-item.not-available { opacity:.4; cursor:not-allowed; }
 .role-detail { text-align:center; background:#2a2a2a; padding:20px; border-radius:10px; }
 .role-detail img { width:150px; height:150px; margin-bottom:20px; }
-.team-section { display:flex; flex-direction:column; gap:10px; padding:15px; }
+.team-section { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-auto-flow:column; gap:10px 20px; padding:15px; flex:1 1 0%; min-height:0; overflow:hidden; align-content:start; }
+.team-section .team-row { min-width:0; min-height:0; flex-wrap:nowrap; }
+.team-section .team-slots { flex-wrap:nowrap; }
 .team-row { position:relative; display:flex; align-items:center; gap:10px; background:#2a2a2a; padding:10px 20px 10px 10px; border-radius:5px; min-height:60px; transition:transform .2s,opacity .2s; flex-wrap: wrap; }
+
+/* 底部工具行：容纳“添加队伍”按钮 */
+.team-footer { position:relative; display:flex; justify-content:center; align-items:center; flex-shrink:0; margin-top:10px; }
+.team-footer .add-team-btn { flex:0 0 auto; margin:0; width:auto; }
+
 .team-row.dragging { opacity:.8; transform:translateY(-10px); box-shadow:0 4px 8px rgba(0,0,0,.3); }
-.team-header { display: flex; align-items: center; flex-shrink: 0; margin-right: 15px; }
+.team-header { display: flex; align-items: center; flex-shrink: 0; margin-right: 8px; }
 .team-handle { cursor:move; font-size:20px; color:#fff; flex-shrink:0; margin-right:10px; }
-.team-label { font-size:14px; font-weight:600; z-index:10; flex-shrink:0; }
-.team-slots { display:flex; gap:8px; flex:1; justify-content:center; flex-wrap: wrap; }
-.slot { width: 50px; height: 50px; border:2px dashed #555; display:flex; align-items:center; justify-content:center; position:relative; background:#333; border-radius:5px; }
+.team-label { font-size:14px; font-weight:600; z-index:10; flex-shrink:0; min-width:44px; white-space:nowrap; }
+.team-slots { display:flex; gap:8px; flex:1 1 auto; min-width:0; align-items:center; justify-content:center; flex-wrap: wrap; }
+.slot { flex:0 0 auto; width: var(--slot-size, 50px); height: var(--slot-size, 50px); border:2px dashed #555; box-sizing:border-box; display:flex; align-items:center; justify-content:center; position:relative; background:#333; border-radius:5px; }
 .slot img { max-width:100%; max-height:100%; }
 .slot .attr { position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,.7); color:#fff; padding:1px 3px; font-size:8px; border-radius:2px; }
 
@@ -361,7 +368,7 @@ input:checked + .toggle-slider:before {
 .slot:hover .delete-btn {
   opacity: 1;
 }
-.clear-btn { position:absolute; bottom:5px; right:5px; padding:3px 6px; font-size:12px; background:#555; color:#fff; border:none; border-radius:3px; cursor:pointer; }
+.clear-btn { align-self:flex-end; flex-shrink:0; margin-left:10px; padding:3px 6px; font-size:12px; background:#555; color:#fff; border:none; border-radius:3px; cursor:pointer; }
 .clear-btn:hover { background:#777; }
 
 .delete-team-btn {
