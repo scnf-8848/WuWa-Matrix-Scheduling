@@ -126,47 +126,81 @@ document.getElementById('attrToggle').addEventListener('change', function() {
   }
 });
 
-// 计算网格行数与槽位尺寸，按行数自适应缩放，保证所有队伍一屏显示
+// 计算网格行数与槽位尺寸：在“不超出 team-row（横向）且所有队伍一屏显示（纵向）”
+// 的前提下，尽量把槽位放到最大，提高头像识别度
 function updateLayoutScale() {
   const section = document.getElementById('teamSection');
   const cs = getComputedStyle(section);
   const padTop = parseFloat(cs.paddingTop) || 0;
   const padBottom = parseFloat(cs.paddingBottom) || 0;
+  const padLeft = parseFloat(cs.paddingLeft) || 0;
+  const padRight = parseFloat(cs.paddingRight) || 0;
   const availH = section.clientHeight - padTop - padBottom;
+  const width = section.clientWidth - padLeft - padRight;
   const n = teams.length;
-  if (availH <= 0 || section.clientWidth <= 0) {
-    section.style.setProperty('--slot-size', '46px');
+  const gap = 10;        // 垂直行间距
+  const gapCols = 20;    // 两列间水平间距
+  const maxSlot = 55;    // 槽位尺寸上限
+  const minSlot = 44;    // 槽位尺寸下限（提高缩放后的可读性，避免头像过小）
+  if (availH <= 0 || width <= 0) {
+    section.style.setProperty('--slot-size', `${maxSlot}px`);
     return;
   }
 
-  const gap = 10;
-  const naturalRow = 70;                                        // 队伍较少的自然行高（槽位 46 + 留白）
-  const maxSlot = 46;
-  const capPerCol = Math.max(1, Math.floor(availH / naturalRow)); // 一列内自然摆放的最大队伍数
+  const naturalRow = 70;                                  // 队伍较少的自然行高
+  // 每个自然行整体占用的竖向高度 = 行高 + 行间距；据此精确计算一列内能自然放下的队伍数，
+  // 忽略间距会高估容量，导致底部行溢出被裁切
+  const capPerCol = Math.max(1, Math.floor((availH + gap) / (naturalRow + gap)));
 
   let perCol;    // 网格行数（每列最多数量）
-  let size;      // 槽位尺寸
-  let row;       // 行高
+  let budgetRow; // 每行可用的最大高度
+  let overflow = false; // 是否需要强制缩放以适配一屏
 
   if (n <= capPerCol) {
     // 数量少：全部堆在左列，右列留空
     perCol = Math.max(1, n);
-    size = maxSlot;
-    row = naturalRow;
+    budgetRow = naturalRow;
   } else if (n <= capPerCol * 2) {
     // 左列填满后，余量进入右列；两列均能自然放下，无需缩放
     perCol = capPerCol;
-    size = maxSlot;
-    row = naturalRow;
+    budgetRow = naturalRow;
   } else {
     // 超出两列自然容量：按列均分并缩小以适配一屏
+    overflow = true;
     perCol = Math.ceil(n / 2);
-    const budgetV = (availH - (perCol - 1) * gap) / perCol;
-    size = Math.max(28, Math.min(maxSlot, budgetV - 24));
-    row = size + 24;
+    budgetRow = (availH - (perCol - 1) * gap) / perCol;
   }
 
+  // 动态上下内边距（总和）：行越矮内边距越小（从 20px 收窄到 10px），把更多高度让给头像
+  const maxPad = 20;                    // 自然状态下的上下内边距总和（上下各 10）
+  const minPad = 10;                    // 极端缩小时的最小内边距总和（上下各 5）
+  const padV = Math.max(minPad, Math.min(maxPad,
+      (budgetRow - 32) / (naturalRow - 32) * (maxPad - minPad) + minPad));
+
+  // 纵向约束：槽位不能超过每行可用高度减去动态内边距后的高度
+  const slotFromV = budgetRow - padV;
+  // 横向约束：槽位(3个+2间隙)、头部(句柄+编号)、清空按钮、行内边距 之和不能超过所在列宽
+  const colW = (width - gapCols) / 2;
+  const headerW = 82;    // 句柄 + 队伍编号 + 边距
+  const clearW = 50;     // 清空按钮 + 左边距
+  const rowPad = 18;     // team-row 左右内边距
+  const slotFromW = (colW - headerW - clearW - rowPad - 16) / 3;
+
+  // 先算“恰好能放进（竖向+横向）”的尺寸，作为硬性上限
+  let size = Math.min(maxSlot, slotFromV, slotFromW);
+  if (overflow) {
+    // 超容量的缩放分支：允许槽位缩小到“一屏放得下”，不再拿 minSlot 硬撑，
+    // 上限回收至 slotFromV，保证行高总和恰好 ≤ section 高度，杜绝最后一行被裁掉
+    size = Math.max(4, Math.min(size, Math.max(0, slotFromV)));
+  } else {
+    // 自然摆放场景：还有富余空间，用 minSlot 兜底抬高可读性
+    size = Math.max(minSlot, size);
+  }
+  const row = size + padV;
+
   section.style.setProperty('--slot-size', `${size}px`);
+  // 动态上下内边距：每侧 = padV/2，随着行高缩小而收窄
+  section.style.setProperty('--row-pad-v', `${padV / 2}px`);
   // 显式声明网格，保障“左列优先填满再排右列”，且每列可收缩以防溢出
   section.style.gridTemplateRows = `repeat(${perCol}, ${row}px)`;
   section.style.gridTemplateColumns = 'minmax(0,1fr) minmax(0,1fr)';
