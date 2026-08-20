@@ -356,7 +356,7 @@ input:checked + .toggle-slider:before {
 .team-slots { display:flex; gap:8px; flex:1 1 auto; min-width:0; align-items:center; justify-content:center; flex-wrap: wrap; }
 .slot { flex:0 0 auto; width: var(--slot-size, 50px); height: var(--slot-size, 50px); border:2px dashed #555; box-sizing:border-box; display:flex; align-items:center; justify-content:center; position:relative; background:#333; border-radius:5px; }
 .slot img { max-width:100%; max-height:100%; }
-.slot .attr { position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,.7); color:#fff; padding:1px 3px; font-size:8px; border-radius:2px; }
+.slot .attr { position:absolute; bottom:0; right:0; background:rgba(0,0,0,.7); color:#fff; padding:1px 3px; font-size:8px; border-radius:2px; }
 
 .delete-btn {
   position: absolute;
