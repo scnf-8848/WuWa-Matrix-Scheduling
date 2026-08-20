@@ -146,28 +146,39 @@ function updateLayoutScale() {
     return;
   }
 
-  const naturalRow = 70;                                  // 队伍较少的自然行高
+  const naturalRow = 70;   // 队伍较少的自然行高
   // 每个自然行整体占用的竖向高度 = 行高 + 行间距；据此精确计算一列内能自然放下的队伍数，
   // 忽略间距会高估容量，导致底部行溢出被裁切
   const capPerCol = Math.max(1, Math.floor((availH + gap) / (naturalRow + gap)));
 
+  // 竖屏（手机/平板竖放）→ 单列排布；横屏 → 双列排布
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
+
+  let colCount;  // 排布列数：竖屏 1 列，横屏 2 列
   let perCol;    // 网格行数（每列最多数量）
   let budgetRow; // 每行可用的最大高度
   let overflow = false; // 是否需要强制缩放以适配一屏
 
-  if (n <= capPerCol) {
-    // 数量少：全部堆在左列，右列留空
-    perCol = Math.max(1, n);
-    budgetRow = naturalRow;
-  } else if (n <= capPerCol * 2) {
-    // 左列填满后，余量进入右列；两列均能自然放下，无需缩放
-    perCol = capPerCol;
-    budgetRow = naturalRow;
+  if (portrait) {
+    // 竖屏：单列、固定行高（根据屏幕取一个舒适值），不随队伍数量缩放；
+    // 队伍过多时超出部分由右面板上下滚动，槽位始终清晰可辨
+    colCount = 1;
+    perCol = n;
+    budgetRow = 76;    // 竖屏固定行高（对应槽位约 55px）
   } else {
-    // 超出两列自然容量：按列均分并缩小以适配一屏
-    overflow = true;
-    perCol = Math.ceil(n / 2);
-    budgetRow = (availH - (perCol - 1) * gap) / perCol;
+    // 横屏：双列，左列优先填满再排右列
+    colCount = 2;
+    if (n <= capPerCol) {
+      perCol = Math.max(1, n);
+      budgetRow = naturalRow;
+    } else if (n <= capPerCol * 2) {
+      perCol = capPerCol;
+      budgetRow = naturalRow;
+    } else {
+      overflow = true;
+      perCol = Math.ceil(n / 2);
+      budgetRow = (availH - (perCol - 1) * gap) / perCol;
+    }
   }
 
   // 动态上下内边距（总和）：行越矮内边距越小（从 20px 收窄到 10px），把更多高度让给头像
@@ -178,15 +189,11 @@ function updateLayoutScale() {
 
   // 纵向约束：槽位不能超过每行可用高度减去动态内边距后的高度
   const slotFromV = budgetRow - padV;
-  // 横向约束：槽位(3个+2间隙)、头部(句柄+编号)、清空按钮、行内边距 之和不能超过所在列宽
-  const colW = (width - gapCols) / 2;
+  // 横向约束：槽位(3个+2间隙)、头部(句柄+编号)、行内边距 之和不能超过所在列宽
+  // 竖屏单列时 colW 为整行宽度（未扣除列间距），扣除方式与横屏相同
   const rowPad = 18;     // team-row 左右内边距
-  // 竖向堆叠布局（手机/平板窄屏，≤768px）下，句柄/标签与清空按钮独占一行，
-  // 不再与 slots 同排占用横向空间，因此不扣除这两者，避免 slot 被过度缩小
-  const vertical = window.matchMedia('(max-width: 768px)').matches;
-  const slotFromW = vertical
-    ? (colW - rowPad - 16) / 3
-    : (colW - 82 - 50 - rowPad - 16) / 3;
+  const colW = (width - (colCount - 1) * gapCols) / colCount;
+  const slotFromW = (colW - 82 - rowPad - 16) / 3;
 
   // 槽位尺寸完全由 row（竖向）与列宽（横向）共同约束，不再设置下限兜底，
   // 从而在小屏/窄屏下随 row 收缩，避免初始尺寸过大导致显示异常
@@ -200,7 +207,7 @@ function updateLayoutScale() {
   }
   const row = size + padV;
 
-  // 头部（手柄+编号）与清空按钮的 UI 缩放比例：
+  // 头部（手柄+编号）的 UI 缩放比例：
   // 随 slot 变小而缩小，但幅度小于行本身，仅用于小屏时的协调性，不参与 slot 尺寸计算
   const uiScaleSizeMin = 22;   // UI 比例缩到最小时的 slot 尺寸参照
   const uiScaleMin = 0.78;     // 极端缩小时的最小 UI 比例（保持可读）
@@ -210,11 +217,14 @@ function updateLayoutScale() {
   section.style.setProperty('--slot-size', `${size}px`);
   // 动态上下内边距：每侧 = padV/2，随着行高缩小而收窄
   section.style.setProperty('--row-pad-v', `${padV / 2}px`);
-  // 动态 UI 缩放比例（手柄/编号/清空按钮），随行缩小而略有收窄
+  // 动态 UI 缩放比例（手柄/编号），随行缩小而略有收窄
   section.style.setProperty('--row-ui-scale', `${uiScale.toFixed(3)}`);
-  // 显式声明网格，保障“左列优先填满再排右列”，且每列可收缩以防溢出
+  // 显式声明网格：竖屏单列（grid-auto-flow:column 下仅填满这一列，自上而下），
+  // 横屏双列（左列优先填满再排右列），每列可收缩以防溢出
   section.style.gridTemplateRows = `repeat(${perCol}, ${row}px)`;
-  section.style.gridTemplateColumns = 'minmax(0,1fr) minmax(0,1fr)';
+  section.style.gridTemplateColumns = portrait
+    ? 'minmax(0,1fr)'
+    : 'minmax(0,1fr) minmax(0,1fr)';
   section.style.gridAutoFlow = 'column';
 }
 
@@ -653,18 +663,8 @@ function renderTeams() {
       slotsDiv.appendChild(slotDiv);
     });
 
-    const clearBtn = document.createElement('button');
-    clearBtn.className = 'clear-btn';
-    clearBtn.textContent = '清空';
-    clearBtn.addEventListener('click', () => {
-      team.slots = [null, null, null];
-      saveData();
-      renderTeamPage();
-    });
-
     row.appendChild(teamHeader);
     row.appendChild(slotsDiv);
-    row.appendChild(clearBtn);
 
     section.appendChild(row);
   });
