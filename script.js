@@ -51,7 +51,7 @@ function initializeCharacters() {
 // 存读本地
 function loadData() {
   initializeCharacters();
-  
+
   const saved = localStorage.getItem(`gameScheduler_${currentUser}`);
   if (saved) {
     const data = JSON.parse(saved);
@@ -124,6 +124,58 @@ document.getElementById('attrToggle').addEventListener('change', function() {
   } else {
     renderRoleList();
   }
+});
+
+// 计算网格行数与槽位尺寸，按行数自适应缩放，保证所有队伍一屏显示
+function updateLayoutScale() {
+  const section = document.getElementById('teamSection');
+  const cs = getComputedStyle(section);
+  const padTop = parseFloat(cs.paddingTop) || 0;
+  const padBottom = parseFloat(cs.paddingBottom) || 0;
+  const availH = section.clientHeight - padTop - padBottom;
+  const n = teams.length;
+  if (availH <= 0 || section.clientWidth <= 0) {
+    section.style.setProperty('--slot-size', '46px');
+    return;
+  }
+
+  const gap = 10;
+  const naturalRow = 70;                                        // 队伍较少的自然行高（槽位 46 + 留白）
+  const maxSlot = 46;
+  const capPerCol = Math.max(1, Math.floor(availH / naturalRow)); // 一列内自然摆放的最大队伍数
+
+  let perCol;    // 网格行数（每列最多数量）
+  let size;      // 槽位尺寸
+  let row;       // 行高
+
+  if (n <= capPerCol) {
+    // 数量少：全部堆在左列，右列留空
+    perCol = Math.max(1, n);
+    size = maxSlot;
+    row = naturalRow;
+  } else if (n <= capPerCol * 2) {
+    // 左列填满后，余量进入右列；两列均能自然放下，无需缩放
+    perCol = capPerCol;
+    size = maxSlot;
+    row = naturalRow;
+  } else {
+    // 超出两列自然容量：按列均分并缩小以适配一屏
+    perCol = Math.ceil(n / 2);
+    const budgetV = (availH - (perCol - 1) * gap) / perCol;
+    size = Math.max(28, Math.min(maxSlot, budgetV - 24));
+    row = size + 24;
+  }
+
+  section.style.setProperty('--slot-size', `${size}px`);
+  // 显式声明网格，保障“左列优先填满再排右列”，且每列可收缩以防溢出
+  section.style.gridTemplateRows = `repeat(${perCol}, ${row}px)`;
+  section.style.gridTemplateColumns = 'minmax(0,1fr) minmax(0,1fr)';
+  section.style.gridAutoFlow = 'column';
+}
+
+window.addEventListener('resize', function() {
+  if (document.getElementById('teamPage').classList.contains('hidden')) return;
+  updateLayoutScale();
 });
 
 function showPage(page) {
@@ -572,7 +624,7 @@ function renderTeams() {
     section.appendChild(row);
   });
 
-  // 添加队伍按钮
+  // 添加队伍按钮（放到底部工具行，位于配置按钮左侧）
   const addTeamBtn = document.createElement('button');
   addTeamBtn.className = 'add-team-btn';
   addTeamBtn.textContent = '添加队伍';
@@ -581,7 +633,10 @@ function renderTeams() {
     saveData();
     renderTeamPage();
   });
-  section.appendChild(addTeamBtn);
+  const footer = document.querySelector('.team-footer');
+  const oldAddBtn = footer.querySelector('.add-team-btn');
+  if (oldAddBtn) oldAddBtn.remove();
+  footer.insertBefore(addTeamBtn, footer.firstChild);
 
   // 初始化队伍排序
   if (sortableInstance) sortableInstance.destroy();
@@ -600,6 +655,8 @@ function renderTeams() {
       }
     },
   });
+
+  updateLayoutScale();
 }
 
 // 初始化
