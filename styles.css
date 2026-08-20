@@ -338,8 +338,8 @@ input:checked + .toggle-slider:before {
 
 .team-row.dragging { opacity:.8; transform:translateY(-10px); box-shadow:0 4px 8px rgba(0,0,0,.3); }
 .team-header { display: flex; align-items: center; flex-shrink: 0; margin-right: 8px; }
-.team-handle { cursor:move; font-size:20px; color:#fff; flex-shrink:0; margin-right:10px; }
-.team-label { font-size:14px; font-weight:600; z-index:10; flex-shrink:0; min-width:44px; white-space:nowrap; }
+.team-handle { cursor:move; font-size:calc(20px * var(--row-ui-scale, 1)); color:#fff; flex-shrink:0; margin-right:calc(10px * var(--row-ui-scale, 1)); }
+.team-label { font-size:calc(14px * var(--row-ui-scale, 1)); font-weight:600; z-index:10; flex-shrink:0; min-width:calc(44px * var(--row-ui-scale, 1)); white-space:nowrap; }
 .team-slots { display:flex; gap:8px; flex:1 1 auto; min-width:0; align-items:center; justify-content:center; flex-wrap: wrap; }
 .slot { flex:0 0 auto; width: var(--slot-size, 50px); height: var(--slot-size, 50px); border:2px dashed #555; box-sizing:border-box; display:flex; align-items:center; justify-content:center; position:relative; background:#333; border-radius:5px; }
 .slot img { max-width:100%; max-height:100%; }
@@ -368,7 +368,7 @@ input:checked + .toggle-slider:before {
 .slot:hover .delete-btn {
   opacity: 1;
 }
-.clear-btn { align-self:flex-end; flex-shrink:0; margin-left:10px; padding:3px 6px; font-size:12px; background:#555; color:#fff; border:none; border-radius:3px; cursor:pointer; }
+.clear-btn { align-self:flex-end; flex-shrink:0; margin-left:calc(10px * var(--row-ui-scale, 1)); padding:calc(3px * var(--row-ui-scale, 1)) calc(6px * var(--row-ui-scale, 1)); font-size:calc(12px * var(--row-ui-scale, 1)); background:#555; color:#fff; border:none; border-radius:3px; cursor:pointer; }
 .clear-btn:hover { background:#777; }
 
 .delete-team-btn {
@@ -452,11 +452,6 @@ input:checked + .toggle-slider:before {
     justify-content: flex-start;
   }
   
-  .slot {
-    width: 60px;
-    height: 60px;
-  }
-  
   .drop-zone {
     width: 200px;
     height: 100px;
@@ -472,11 +467,6 @@ input:checked + .toggle-slider:before {
   .role-item, .team-role-item {
     width: 60px;
     height: 60px;
-  }
-  
-  .slot {
-    width: 50px;
-    height: 50px;
   }
   
   .drop-zone {
