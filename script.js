@@ -65,6 +65,17 @@ function loadData() {
     teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     extraUseChars = [];
   }
+  // 读取全局开关（跨用户）：优先全局值；若无则迁移旧版按用户保存的一次性值
+  const globalShowAttr = localStorage.getItem('globalShowAttr');
+  if (globalShowAttr !== null) {
+    showAttr = globalShowAttr === 'true';
+  } else if (data && typeof data.showAttr === 'boolean') {
+    showAttr = data.showAttr;
+    localStorage.setItem('globalShowAttr', showAttr.toString());
+  }
+  // 将开关状态同步到界面复选框
+  const attrToggle = document.getElementById('attrToggle');
+  if (attrToggle) attrToggle.checked = showAttr;
 }
 function saveData() {
   const userData = {};
@@ -77,6 +88,7 @@ function saveData() {
   });
   localStorage.setItem(`userCharacterData_${currentUser}`, JSON.stringify(userData));
   localStorage.setItem(`gameScheduler_${currentUser}`, JSON.stringify({ teams, extraUseChars }));
+  localStorage.setItem('globalShowAttr', showAttr.toString());
   localStorage.setItem('currentUser', currentUser.toString());
 }
 
@@ -118,6 +130,7 @@ document.getElementById('userSelect').addEventListener('change', function() {
 // 处理显示/隐藏属性的切换
 document.getElementById('attrToggle').addEventListener('change', function() {
   showAttr = this.checked;
+  saveData();
   // 重新渲染当前页面
   if (document.getElementById('rolePage').classList.contains('hidden')) {
     renderTeamPage();
