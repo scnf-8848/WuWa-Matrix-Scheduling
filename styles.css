@@ -1,17 +1,30 @@
+/* 统一盒模型：宽高含边框与内边距，避免 100% 宽 + 边框 超出屏幕 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* 固定页面高度，禁止整体滚动：仅内部面板（如编队区域）可上下滚动 */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   font-family: Arial, sans-serif;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
   background-color: #121212;
   color: #fff;
   user-select: none;
 }
 
 /* 防止元素获得焦点时显示光标 */
-.role-item, .team-role-item, .slot, .name-overlay, .attr, .role-detail, .team-label, .team-header, .clear-btn, .attr-btn, .status-btn, .drop-zone {
+.role-item, .team-role-item, .slot, .name-overlay, .attr, .role-detail, .team-label, .team-header, .attr-btn, .status-btn, .drop-zone {
   pointer-events: auto;
   -webkit-user-select: none;
   -moz-user-select: none;
@@ -21,7 +34,7 @@ body {
 }
 
 /* 禁用默认的焦点行为 */
-.role-item:focus, .team-role-item:focus, .slot:focus, .name-overlay:focus, .attr:focus, .role-detail:focus, .team-label:focus, .team-header:focus, .clear-btn:focus, .attr-btn:focus, .status-btn:focus, .drop-zone:focus {
+.role-item:focus, .team-role-item:focus, .slot:focus, .name-overlay:focus, .attr:focus, .role-detail:focus, .team-label:focus, .team-header:focus, .attr-btn:focus, .status-btn:focus, .drop-zone:focus {
   outline: none;
   box-shadow: none;
 }
@@ -368,8 +381,6 @@ input:checked + .toggle-slider:before {
 .slot:hover .delete-btn {
   opacity: 1;
 }
-.clear-btn { align-self:flex-end; flex-shrink:0; margin-left:calc(10px * var(--row-ui-scale, 1)); padding:calc(3px * var(--row-ui-scale, 1)) calc(6px * var(--row-ui-scale, 1)); font-size:calc(12px * var(--row-ui-scale, 1)); background:#555; color:#fff; border:none; border-radius:3px; cursor:pointer; }
-.clear-btn:hover { background:#777; }
 
 .delete-team-btn {
   position: absolute;
@@ -413,8 +424,8 @@ input:checked + .toggle-slider:before {
   background: #22c55e;
 }
 
-/* 响应式设计 */
-@media screen and (max-width: 768px) {
+/* 响应式设计：竖屏（手机/平板竖放）→ 面板上下堆叠 + 队伍单列排布 */
+@media screen and (orientation: portrait) {
   .page {
     flex-direction: column;
   }
@@ -435,21 +446,17 @@ input:checked + .toggle-slider:before {
   .right-panel {
     flex: 1;
   }
-  
-  .team-row {
-    flex-direction: column;
-    align-items: flex-start;
-    min-height: auto;
+
+  /* 竖屏：队伍固定行高、不做一屏缩放，超出部分随右面板上下滚动 */
+  .team-section {
+    overflow-y: auto;
+    overflow-x: hidden;
   }
-  
-  .team-label {
-    position: static;
-    margin-bottom: 10px;
+  .team-section .team-row {
+    flex-wrap: nowrap;
   }
-  
-  .team-slots {
-    width: 100%;
-    justify-content: flex-start;
+  .team-section .team-slots {
+    flex-wrap: nowrap;
   }
   
   .drop-zone {
