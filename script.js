@@ -18,129 +18,463 @@ function handleImgError(img) {
   }
 }
 
-// 用户角色数据（动态生成）
+// 运行态（当前用户一份）
 let characters = [];
 let currentSelectedRoleIndex = null;
-
-let teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
+let teams = [];
 let sortableInstance = null;
 let showAttr = true;
 let extraUseChars = [];
-let currentUser = 1;
 
-// 初始化角色数据
-function initializeCharacters() {
-  const savedUserData = localStorage.getItem(`userCharacterData_${currentUser}`);
-  if (savedUserData) {
-    const userData = JSON.parse(savedUserData);
-    characters = characterTemplates.map((template) => {
-      const userChar = userData[template.name] || { owned: false, chain: 0, weapon: 0 };
-      return { ...template, avatar: getAvatar(template.name), ...userChar };
-    });
-  } else {
-    characters = characterTemplates.map(template => ({
-      ...template,
-      avatar: getAvatar(template.name),
-      owned: false,
-      chain: 0,
-      weapon: 0
-    }));
-  }
+// ================= 用户元数据 =================
+// gameUsersMeta: { seq, currentUid, users:[{uid,name}] }
+// userData_${uid}: { charData:{角色名:{owned,chain,weapon}}, teams, extraUseChars }
+// globalShowAttr: 'true'/'false'（跨用户）
+const META_KEY = 'gameUsersMeta';
+let meta = { seq: 0, currentUid: null, users: [] };
+
+function loadMeta() {
+  try { meta = JSON.parse(localStorage.getItem(META_KEY)) || { seq: 0, currentUid: null, users: [] }; }
+  catch { meta = { seq: 0, currentUid: null, users: [] }; }
+}
+function saveMeta() {
+  localStorage.setItem(META_KEY, JSON.stringify({ seq: meta.seq, currentUid: meta.currentUid, users: meta.users }));
+}
+function getUser(uid) { return meta.users.find(u => u.uid === uid); }
+// 持有点数：统计该用户 charData 中 owned 的角色数
+function getCharCount(uid) {
+  const raw = localStorage.getItem(`userData_${uid}`);
+  if (!raw) return 0;
+  try {
+    const d = JSON.parse(raw);
+    const cd = d.charData || {};
+    return Object.values(cd).filter(v => v && v.owned).length;
+  } catch { return 0; }
 }
 
-// 存读本地
-function loadData() {
-  initializeCharacters();
+// 迁移旧版固定用户(1~5)到新结构，仅迁移有数据的用户
+function migrateLegacy() {
+  if (localStorage.getItem(META_KEY)) return;
+  let seq = 0;
+  const users = [];
+  for (let i = 1; i <= 5; i++) {
+    const charKey = `userCharacterData_${i}`;
+    const gsKey = `gameScheduler_${i}`;
+    const cd = localStorage.getItem(charKey);
+    const gs = localStorage.getItem(gsKey);
+    if (!cd && !gs) continue;
+    const data = { charData: {}, teams: null, extraUseChars: [] };
+    try { data.charData = JSON.parse(cd) || {}; } catch { data.charData = {}; }
+    let gsData = {};
+    try { gsData = gs ? JSON.parse(gs) : {}; } catch { gsData = {}; }
+    data.teams = gsData.teams || Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
+    data.extraUseChars = gsData.extraUseChars || [];
+    localStorage.setItem(`userData_${i}`, JSON.stringify(data));
+    users.push({ uid: i, name: `用户${i}` });
+    seq = Math.max(seq, i);
+  }
+  const oldCur = parseInt(localStorage.getItem('currentUser'), 10);
+  meta = {
+    seq,
+    currentUid: (oldCur && users.some(u => u.uid === oldCur)) ? oldCur
+      : (users.length ? Math.min(...users.map(u => u.uid)) : null),
+    users
+  };
+  saveMeta();
+}
 
-  const saved = localStorage.getItem(`gameScheduler_${currentUser}`);
-  if (saved) {
-    const data = JSON.parse(saved);
-    if (data.teams) {
-      teams = data.teams;
-    } else {
-      teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
-    }
-    extraUseChars = data.extraUseChars || [];
+// ================= 数据读写 =================
+function loadUser(uid) {
+  meta.currentUid = uid;
+  saveMeta();
+  const raw = localStorage.getItem(`userData_${uid}`);
+  let d = null;
+  if (raw) { try { d = JSON.parse(raw); } catch { d = null; } }
+  if (d) {
+    characters = characterTemplates.map(template => {
+      const uc = (d.charData && d.charData[template.name]) || { owned: false, chain: 0, weapon: 0 };
+      return { ...template, avatar: getAvatar(template.name), ...uc };
+    });
+    teams = d.teams || Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
+    extraUseChars = d.extraUseChars || [];
   } else {
+    characters = characterTemplates.map(template => ({
+      ...template, avatar: getAvatar(template.name), owned: false, chain: 0, weapon: 0
+    }));
     teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     extraUseChars = [];
   }
-  // 读取全局开关（跨用户）：优先全局值；若无则迁移旧版按用户保存的一次性值
-  const globalShowAttr = localStorage.getItem('globalShowAttr');
-  if (globalShowAttr !== null) {
-    showAttr = globalShowAttr === 'true';
-  } else if (data && typeof data.showAttr === 'boolean') {
-    showAttr = data.showAttr;
-    localStorage.setItem('globalShowAttr', showAttr.toString());
-  }
-  // 将开关状态同步到界面复选框
-  const attrToggle = document.getElementById('attrToggle');
-  if (attrToggle) attrToggle.checked = showAttr;
 }
 function saveData() {
-  const userData = {};
-  characters.forEach(char => {
-    userData[char.name] = {
-      owned: char.owned,
-      chain: char.chain,
-      weapon: char.weapon
-    };
-  });
-  localStorage.setItem(`userCharacterData_${currentUser}`, JSON.stringify(userData));
-  localStorage.setItem(`gameScheduler_${currentUser}`, JSON.stringify({ teams, extraUseChars }));
+  if (meta.currentUid == null) return;
+  const charData = {};
+  characters.forEach(char => { charData[char.name] = { owned: char.owned, chain: char.chain, weapon: char.weapon }; });
+  localStorage.setItem(`userData_${meta.currentUid}`, JSON.stringify({ charData, teams, extraUseChars }));
+  saveMeta();
   localStorage.setItem('globalShowAttr', showAttr.toString());
-  localStorage.setItem('currentUser', currentUser.toString());
+}
+
+// ================= 状态码编解码 =================
+// base64url 字母表（URL 安全，去 '='）
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const B64MAP = {};
+B64.split('').forEach((c, i) => { B64MAP[c] = i; });
+
+// 生成第 n 个质数动态权重，避免角色增多时手工维护权重表
+const __primes = [2];
+function isPrime(x) {
+  if (x < 2) return false;
+  if (x % 2 === 0) return x === 2;
+  for (let i = 3; i * i <= x; i += 2) if (x % i === 0) return false;
+  return true;
+}
+function primeAt(n) {
+  while (__primes.length < n) {
+    let c = __primes[__primes.length - 1] + 1;
+    while (!isPrime(c)) c++;
+    __primes.push(c);
+  }
+  return __primes[n - 1];
+}
+
+// 校验和：对整段状态字符串计算，第 i 位权重 = 第 i+1 个质数
+function calcChecksum(str) {
+  let sum = 0;
+  for (let i = 0; i < str.length; i++) {
+    const cv = B64MAP[str[i]];
+    if (cv === undefined) return null;
+    sum = (sum + cv * primeAt(i + 1)) % 64;
+  }
+  return B64[sum];
+}
+
+// 已实装（id<=1000）角色子集
+function implemented() { return characterTemplates.filter(t => t.id <= 1000); }
+
+// 单个角色状态 <-> 0..42 数值：0 未持有；≥1 持有，v-1 = chain*6 + weapon
+function stateToValue(c) {
+  if (!c.owned) return 0;
+  return 1 + c.chain * 6 + c.weapon;
+}
+function valueToState(c, v) {
+  if (!v) { c.owned = false; c.chain = 0; c.weapon = 0; return; }
+  c.owned = true;
+  const t = v - 1;
+  c.chain = Math.floor(t / 6);
+  c.weapon = t % 6;
+}
+
+// 将任意用户库状态编码为状态码
+function encodeUserState(uid) {
+  const raw = localStorage.getItem(`userData_${uid}`);
+  let charData = {};
+  if (raw) { try { charData = (JSON.parse(raw).charData) || {}; } catch { charData = {}; } }
+  const chars = characterTemplates.map(t => {
+    const uc = charData[t.name] || { owned: false, chain: 0, weapon: 0 };
+    return { ...t, ...uc };
+  });
+  const version = 0;
+  const implChars = chars.filter(c => c.id <= 1000);
+  const body = B64[version] + implChars.map(c => B64[stateToValue(c)]).join('');
+  return body + calcChecksum(body);
+}
+
+// 解析状态码 → {ok, states:[数值...]} 或 {ok:false, error}
+function decodeState(code) {
+  const chars = [...code];
+  if (chars.length < 3) return { ok: false, error: '状态码过短' };
+  if (!(chars[0] in B64MAP)) return { ok: false, error: '无效的状态码' };
+  const version = B64MAP[chars[0]];
+  if (version !== 0) return { ok: false, error: `不支持的状态码版本（${version}）` };
+  const body = chars.slice(0, -1).join('');
+  const checksum = chars[chars.length - 1];
+  if (calcChecksum(body) !== checksum) return { ok: false, error: '校验失败：状态码可能已损坏' };
+  return { ok: true, version, states: chars.slice(1, -1).map(c => B64MAP[c]) };
+}
+
+// 把解码结果写入指定用户的角色库（覆盖字符点数据，交队伍/体力）
+// 按 min(码长, 当前角色数) 导入，多出的新角置空（供手工编辑）
+function importStateToUser(uid, code) {
+  const res = decodeState(code);
+  if (!res.ok) return res;
+  const chars = characterTemplates.map(t => ({ ...t, owned: false, chain: 0, weapon: 0 }));
+  implemented().forEach((tpl, i) => {
+    const c = chars.find(x => x.name === tpl.name);
+    valueToState(c, i < res.states.length ? res.states[i] : 0);
+  });
+  const charData = {};
+  chars.forEach(c => { charData[c.name] = { owned: c.owned, chain: c.chain, weapon: c.weapon }; });
+  let d = {};
+  const raw = localStorage.getItem(`userData_${uid}`);
+  if (raw) { try { d = JSON.parse(raw); } catch { d = {}; } }
+  d.charData = charData;
+  localStorage.setItem(`userData_${uid}`, JSON.stringify(d));
+  return { ok: true };
+}
+
+// ================= 模态窗开关 =================
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function hideModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ================= 用户管理窗口 =================
+function renderUserList() {
+  const list = document.getElementById('userList');
+  list.innerHTML = '';
+
+  if (meta.users.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'user-desc';
+    empty.style.padding = '20px 0';
+    empty.style.textAlign = 'center';
+    empty.textContent = '暂无用户，请点击下方按钮添加';
+    list.appendChild(empty);
+  }
+
+  meta.users.forEach(u => {
+    const card = document.createElement('div');
+    card.className = 'user-card' + (u.uid === meta.currentUid ? ' active' : '');
+    card.dataset.uid = u.uid;
+
+    const left = document.createElement('div');
+    left.className = 'card-left';
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'name-row';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'user-name';
+    nameSpan.textContent = u.name;
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = '✎';
+    editBtn.title = '重命名';
+    editBtn.addEventListener('click', (e) => { e.stopPropagation(); startRename(card, u); });
+    nameRow.appendChild(nameSpan);
+    nameRow.appendChild(editBtn);
+
+    const desc = document.createElement('div');
+    desc.className = 'user-desc';
+    desc.textContent = `持有 ${getCharCount(u.uid)} 个角色`;
+
+    left.appendChild(nameRow);
+    left.appendChild(desc);
+
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    actions.appendChild(mkBtn('导入', 'btn-import', () => openImport(u.uid)));
+    actions.appendChild(mkBtn('导出', 'btn-export', () => openExport(u.uid)));
+    actions.appendChild(mkBtn('删除', 'btn-delete', () => openDelete(u.uid)));
+
+    card.appendChild(left);
+    card.appendChild(actions);
+
+    // 点击卡片主体激活该用户
+    card.addEventListener('click', () => {
+      if (meta.currentUid !== u.uid) {
+        loadUser(u.uid);
+        renderUserList();
+        rerenderCurrentPage();
+      }
+    });
+
+    list.appendChild(card);
+  });
+
+  // 添加用户虚线框（不自动激活）
+  const add = document.createElement('div');
+  add.className = 'add-user';
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '＋ 添加用户';
+  addBtn.addEventListener('click', () => addNewUser());
+  add.appendChild(addBtn);
+  list.appendChild(add);
+}
+
+function mkBtn(text, cls, handler) {
+  const b = document.createElement('button');
+  b.className = cls;
+  b.textContent = text;
+  b.addEventListener('click', (e) => { e.stopPropagation(); handler(); });
+  return b;
+}
+
+// 添加用户（新用户追加到底部，不自动设为当前）
+function addUser(name, activate) {
+  meta.seq += 1;
+  const u = { uid: meta.seq, name };
+  meta.users.push(u);
+  if (activate) meta.currentUid = u.uid;
+  saveMeta();
+  return u.uid;
+}
+function addNewUser() {
+  addUser(`用户${meta.seq + 1}`, false);
+  renderUserList();
+}
+
+// 编辑名字
+function startRename(card, u) {
+  const nameSpan = card.querySelector('.user-name');
+  const editBtn = card.querySelector('.edit-btn');
+  const input = document.createElement('input');
+  input.className = 'name-input';
+  input.value = u.name;
+
+  editBtn.replaceWith(input);
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.addEventListener('blur', () => {
+    if (input.value.trim()) { u.name = input.value.trim(); saveMeta(); }
+    renderUserList();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') { u.name = input.value.trim() || u.name; input.value = ''; input.blur(); }
+  });
+}
+
+// 导出（对指定用户）
+function openExport(uid) {
+  const code = encodeUserState(uid);
+  document.getElementById('exportCodeLine').textContent = code;
+  document.getElementById('exportUrlLine').textContent = 'https://wuwamatrix.pages.dev/import#' + code;
+  showModal('exportModal');
+}
+
+// 导入（对指定用户）
+let importTarget = null;
+function openImport(uid) {
+  importTarget = uid;
+  document.getElementById('importMsg').textContent = '';
+  document.getElementById('importMsg').className = 'msg';
+  document.getElementById('importInput').value = '';
+  showModal('importModal');
+  setTimeout(() => document.getElementById('importInput').focus(), 0);
+}
+
+// 删除（二次确认）
+let deleteTarget = null;
+function openDelete(uid) {
+  deleteTarget = uid;
+  const u = getUser(uid);
+  document.getElementById('deleteName').textContent = u ? u.name : '';
+  showModal('deleteModal');
+}
+
+// 复制
+async function copyToClipboard(text, btn) {
+  const flash = (ok) => {
+    const old = btn.textContent;
+    btn.textContent = ok ? '已复制' : '失败';
+    setTimeout(() => btn.textContent = old, 1200);
+  };
+  try {
+    await navigator.clipboard.writeText(text);
+    flash(true);
+  } catch (e) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      flash(true);
+    } catch (e2) { flash(false); }
+  }
+}
+
+// ================= 顶部操作 =================
+function rerenderCurrentPage() {
+  if (document.getElementById('teamPage').classList.contains('hidden')) renderRoleList();
+  else renderTeamPage();
 }
 
 // 清空所有数据
 function clearAllData() {
-  if (confirm('确定要清空所有用户数据吗？此操作将清除所有用户的角色和队伍数据，且无法恢复。')) {
-    for (let i = 1; i <= 5; i++) {
-      localStorage.removeItem(`userCharacterData_${i}`);
-      localStorage.removeItem(`gameScheduler_${i}`);
-    }
-    localStorage.removeItem('currentUser');
-    currentUser = 1;
-    loadData();
-    document.getElementById('userSelect').value = '1';
-    showPage('role');
-  }
+  if (!confirm('确定要清空所有用户数据吗？此操作将清除所有用户及其角色、队伍数据，且无法恢复。')) return;
+  if (meta.users) meta.users.forEach(u => localStorage.removeItem(`userData_${u.uid}`));
+  meta = { seq: 0, currentUid: null, users: [] };
+  localStorage.removeItem('globalShowAttr');
+  saveMeta();
+  showAttr = true;
+  const at = document.getElementById('attrToggle');
+  if (at) at.checked = true;
+  renderUserList();
+  rerenderCurrentPage();
 }
 
 // 导航
 document.getElementById('roleBtn').addEventListener('click', () => showPage('role'));
 document.getElementById('teamBtn').addEventListener('click', () => showPage('team'));
 document.getElementById('clearBtn').addEventListener('click', clearAllData);
-
-// 处理用户切换
-document.getElementById('userSelect').addEventListener('change', function() {
-  saveData();
-  currentUser = parseInt(this.value, 10);
-  localStorage.setItem('currentUser', currentUser.toString());
-  currentSelectedRoleIndex = null;
-  document.getElementById('roleDetail').innerHTML = '<p>请选择一个角色查看详情</p>';
-  loadData();
-  if (document.getElementById('rolePage').classList.contains('hidden')) {
-    showPage('team');
-  } else {
-    showPage('role');
-  }
+document.getElementById('userMgrBtn').addEventListener('click', () => {
+  renderUserList();
+  showModal('userModal');
 });
 
-// 处理显示/隐藏属性的切换
-document.getElementById('attrToggle').addEventListener('change', function() {
-  showAttr = this.checked;
-  saveData();
-  // 重新渲染当前页面
-  if (document.getElementById('rolePage').classList.contains('hidden')) {
-    renderTeamPage();
-  } else {
-    renderRoleList();
+// ================= 用户管理窗口事件 =================
+// data-close：仅关闭自身所在弹窗，保留父级“用户管理”窗口
+document.querySelectorAll('[data-close]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const o = btn.closest('.overlay');
+    if (o) o.classList.remove('show');
+  });
+});
+// 点击遮罩空白处关闭
+document.querySelectorAll('.overlay').forEach(o => {
+  o.addEventListener('mousedown', (e) => { if (e.target === o) o.classList.remove('show'); });
+});
+// 复制按钮
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const line = document.getElementById(btn.dataset.copy);
+    if (line) copyToClipboard(line.textContent.trim(), btn);
+  });
+});
+// 导入确定：接受纯状态码或含状态码的链接，自动提取'#'后的码
+document.getElementById('importOk').addEventListener('click', () => {
+  const val = document.getElementById('importInput').value.trim();
+  const msg = document.getElementById('importMsg');
+  if (!val) { msg.textContent = '请输入状态码或链接'; msg.className = 'msg err'; return; }
+  if (importTarget == null) return;
+  const hashIdx = val.lastIndexOf('#');
+  const code = hashIdx >= 0 ? val.slice(hashIdx + 1) : val;
+  const res = importStateToUser(importTarget, code);
+  if (!res.ok) {
+    msg.textContent = res.error;
+    msg.className = 'msg err';
+    return;
   }
+  const u = getUser(importTarget);
+  msg.textContent = `已导入到“${u ? u.name : ''}”`;
+  msg.className = 'msg ok';
+  renderUserList();
+  if (importTarget === meta.currentUid) { loadUser(importTarget); rerenderCurrentPage(); }
+  setTimeout(() => hideModal('importModal'), 900);
+});
+document.getElementById('importInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('importOk').click();
+});
+// 删除确认
+document.getElementById('deleteOk').addEventListener('click', () => {
+  if (deleteTarget == null) return;
+  const uid = deleteTarget;
+  const wasCurrent = meta.currentUid === uid;
+  meta.users = meta.users.filter(u => u.uid !== uid);
+  localStorage.removeItem(`userData_${uid}`);
+  if (wasCurrent) {
+    meta.currentUid = meta.users.length ? Math.min(...meta.users.map(u => u.uid)) : null;
+    if (meta.currentUid != null) loadUser(meta.currentUid);
+  }
+  saveMeta();
+  deleteTarget = null;
+  hideModal('deleteModal');
+  renderUserList();
+  rerenderCurrentPage();
 });
 
-// 计算网格行数与槽位尺寸：在“不超出 team-row（横向）且所有队伍一屏显示（纵向）”
-// 的前提下，尽量把槽位放到最大，提高头像识别度
+// ================= 布局：网格行数与槽位尺寸 =================
 function updateLayoutScale() {
   const section = document.getElementById('teamSection');
   const cs = getComputedStyle(section);
@@ -160,26 +494,20 @@ function updateLayoutScale() {
   }
 
   const naturalRow = 70;   // 队伍较少的自然行高
-  // 每个自然行整体占用的竖向高度 = 行高 + 行间距；据此精确计算一列内能自然放下的队伍数，
-  // 忽略间距会高估容量，导致底部行溢出被裁切
   const capPerCol = Math.max(1, Math.floor((availH + gap) / (naturalRow + gap)));
 
-  // 竖屏（手机/平板竖放）→ 单列排布；横屏 → 双列排布
   const portrait = window.matchMedia('(orientation: portrait)').matches;
 
-  let colCount;  // 排布列数：竖屏 1 列，横屏 2 列
-  let perCol;    // 网格行数（每列最多数量）
-  let budgetRow; // 每行可用的最大高度
-  let overflow = false; // 是否需要强制缩放以适配一屏
+  let colCount;
+  let perCol;
+  let budgetRow;
+  let overflow = false;
 
   if (portrait) {
-    // 竖屏：单列、固定行高（根据屏幕取一个舒适值），不随队伍数量缩放；
-    // 队伍过多时超出部分由右面板上下滚动，槽位始终清晰可辨
     colCount = 1;
     perCol = n;
-    budgetRow = 76;    // 竖屏固定行高（对应槽位约 55px）
+    budgetRow = 76;
   } else {
-    // 横屏：双列，左列优先填满再排右列
     colCount = 2;
     if (n <= capPerCol) {
       perCol = Math.max(1, n);
@@ -194,46 +522,32 @@ function updateLayoutScale() {
     }
   }
 
-  // 动态上下内边距（总和）：行越矮内边距越小（从 20px 收窄到 10px），把更多高度让给头像
-  const maxPad = 20;                    // 自然状态下的上下内边距总和（上下各 10）
-  const minPad = 10;                    // 极端缩小时的最小内边距总和（上下各 5）
+  const maxPad = 20;
+  const minPad = 10;
   const padV = Math.max(minPad, Math.min(maxPad,
       (budgetRow - 32) / (naturalRow - 32) * (maxPad - minPad) + minPad));
 
-  // 纵向约束：槽位不能超过每行可用高度减去动态内边距后的高度
   const slotFromV = budgetRow - padV;
-  // 横向约束：槽位(3个+2间隙)、头部(句柄+编号)、行内边距 之和不能超过所在列宽
-  // 竖屏单列时 colW 为整行宽度（未扣除列间距），扣除方式与横屏相同
-  const rowPad = 18;     // team-row 左右内边距
+  const rowPad = 18;
   const colW = (width - (colCount - 1) * gapCols) / colCount;
   const slotFromW = (colW - 82 - rowPad - 16) / 3;
 
-  // 槽位尺寸完全由 row（竖向）与列宽（横向）共同约束，不再设置下限兜底，
-  // 从而在小屏/窄屏下随 row 收缩，避免初始尺寸过大导致显示异常
   let size;
   if (overflow) {
-    // 超容量场景：强制一屏，槽位以竖向行高与横向列宽为共同上限
     size = Math.max(4, Math.min(slotFromV, slotFromW));
   } else {
-    // 自然摆放场景：以 row 允许的高度与列宽为上限，尽可能放大
     size = Math.max(4, Math.min(maxSlot, slotFromV, slotFromW));
   }
   const row = size + padV;
 
-  // 头部（手柄+编号）的 UI 缩放比例：
-  // 随 slot 变小而缩小，但幅度小于行本身，仅用于小屏时的协调性，不参与 slot 尺寸计算
-  const uiScaleSizeMin = 22;   // UI 比例缩到最小时的 slot 尺寸参照
-  const uiScaleMin = 0.78;     // 极端缩小时的最小 UI 比例（保持可读）
+  const uiScaleSizeMin = 22;
+  const uiScaleMin = 0.78;
   const uiScale = Math.max(uiScaleMin, Math.min(1,
       uiScaleMin + (size - uiScaleSizeMin) / (maxSlot - uiScaleSizeMin) * (1 - uiScaleMin)));
 
   section.style.setProperty('--slot-size', `${size}px`);
-  // 动态上下内边距：每侧 = padV/2，随着行高缩小而收窄
   section.style.setProperty('--row-pad-v', `${padV / 2}px`);
-  // 动态 UI 缩放比例（手柄/编号），随行缩小而略有收窄
   section.style.setProperty('--row-ui-scale', `${uiScale.toFixed(3)}`);
-  // 显式声明网格：竖屏单列（grid-auto-flow:column 下仅填满这一列，自上而下），
-  // 横屏双列（左列优先填满再排右列），每列可收缩以防溢出
   section.style.gridTemplateRows = `repeat(${perCol}, ${row}px)`;
   section.style.gridTemplateColumns = portrait
     ? 'minmax(0,1fr)'
@@ -241,7 +555,7 @@ function updateLayoutScale() {
   section.style.gridAutoFlow = 'column';
 }
 
-window.addEventListener('resize', function() {
+window.addEventListener('resize', function () {
   if (document.getElementById('teamPage').classList.contains('hidden')) return;
   updateLayoutScale();
 });
@@ -253,47 +567,45 @@ function showPage(page) {
   if (page === 'team') renderTeamPage();
 }
 
-// 角色页面渲染
+// 空态提示（无当前用户时）
+function emptyHint() {
+  const h = document.createElement('div');
+  h.style.cssText = 'padding:40px 0;color:#888;font-size:14px;text-align:center;grid-column:1/-1;';
+  h.textContent = '暂无用户，请点击右上角“用户管理”添加或导入';
+  h.style.width = '100%';
+  return h;
+}
+
+// ================= 角色页面渲染 =================
 function renderRoleList() {
   const list = document.getElementById('roleList');
   list.innerHTML = '';
-  
-  // 创建已持有区域
+
+  if (meta.currentUid == null) { list.appendChild(emptyHint()); return; }
+
   const ownedSection = document.createElement('div');
   ownedSection.className = 'role-section';
   ownedSection.innerHTML = '<div class="section-header"><h3>已持有</h3><button class="section-btn">全部没有</button></div><div class="role-list"></div>';
-  
-  // 创建未持有区域
+
   const notOwnedSection = document.createElement('div');
   notOwnedSection.className = 'role-section';
   notOwnedSection.innerHTML = '<div class="section-header"><h3>未持有</h3><button class="section-btn">全部持有</button></div><div class="role-list"></div>';
-  
-  // 添加全部持有按钮事件
+
   notOwnedSection.querySelector('.section-btn').addEventListener('click', () => {
-    characters.forEach(char => {
-      char.owned = true;
-    });
+    characters.forEach(char => { char.owned = true; });
     saveData();
     renderRoleList();
     if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
   });
-  
-  // 添加全部没有按钮事件
+
   ownedSection.querySelector('.section-btn').addEventListener('click', () => {
-    characters.forEach(char => {
-      char.owned = false;
-    });
-    
-    // 从所有队伍中移除所有角色
-    teams.forEach(team => {
-      team.slots = [null, null, null];
-    });
-    
+    characters.forEach(char => { char.owned = false; });
+    teams.forEach(team => { team.slots = [null, null, null]; });
     saveData();
     renderRoleList();
     if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
   });
-  
+
   characters.forEach((char, index) => {
     const item = document.createElement('div');
     item.className = 'role-item';
@@ -304,7 +616,6 @@ function renderRoleList() {
     nameOverlay.textContent = char.name;
     item.appendChild(nameOverlay);
 
-    // 添加属性显示
     if (showAttr) {
       const attr = document.createElement('div');
       attr.className = 'attr';
@@ -312,7 +623,6 @@ function renderRoleList() {
       item.appendChild(attr);
     }
 
-    // 添加状态按钮
     const statusBtn = document.createElement('div');
     statusBtn.className = `status-btn ${char.owned ? 'remove' : ''}`;
     statusBtn.textContent = char.owned ? '×' : '↑';
@@ -320,18 +630,13 @@ function renderRoleList() {
       e.stopPropagation();
       const newOwned = !char.owned;
       char.owned = newOwned;
-      
-      // 如果角色被取消持有，从所有队伍中移除该角色
       if (!newOwned) {
         teams.forEach(team => {
           team.slots.forEach((slot, slotIndex) => {
-            if (slot && slot.name === char.name) {
-              team.slots[slotIndex] = null;
-            }
+            if (slot && slot.name === char.name) team.slots[slotIndex] = null;
           });
         });
       }
-      
       saveData();
       renderRoleList();
       if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
@@ -339,35 +644,30 @@ function renderRoleList() {
     item.appendChild(statusBtn);
 
     item.addEventListener('click', () => showRoleDetail(index));
-    
-    // 根据是否持有添加到不同区域
-    if (char.owned) {
-      ownedSection.querySelector('.role-list').appendChild(item);
-    } else {
-      notOwnedSection.querySelector('.role-list').appendChild(item);
-    }
+
+    if (char.owned) ownedSection.querySelector('.role-list').appendChild(item);
+    else notOwnedSection.querySelector('.role-list').appendChild(item);
   });
-  
+
   list.appendChild(ownedSection);
   list.appendChild(notOwnedSection);
 }
+
 function showRoleDetail(index) {
   currentSelectedRoleIndex = index;
   const char = characters[index];
   const detail = document.getElementById('roleDetail');
-  
-  // 生成共鸣链按钮
+
   let chainButtons = '';
   for (let i = 0; i <= 6; i++) {
     chainButtons += `<button class="attr-btn ${char.chain === i ? 'active' : ''}" onclick="updateChain(${index}, ${i})"><strong>${i}</strong></button>`;
   }
-  
-  // 生成专武按钮
+
   let weaponButtons = '';
   for (let i = 0; i <= 5; i++) {
     weaponButtons += `<button class="attr-btn ${char.weapon === i ? 'active' : ''}" onclick="updateWeapon(${index}, ${i})"><strong>${i}</strong></button>`;
   }
-  
+
   detail.innerHTML = `
     <img src="${char.avatar}" alt="${char.name}" onerror="handleImgError(this)">
     <h3>${char.name}</h3>
@@ -385,59 +685,47 @@ function showRoleDetail(index) {
     </div>
   `;
 }
+
 function toggleOwned(index, owned) {
   const char = characters[index];
   char.owned = owned;
-  
-  // 如果角色被取消持有，从所有队伍中移除该角色
   if (!owned) {
     teams.forEach(team => {
       team.slots.forEach((slot, slotIndex) => {
-        if (slot && slot.name === char.name) {
-          team.slots[slotIndex] = null;
-        }
+        if (slot && slot.name === char.name) team.slots[slotIndex] = null;
       });
     });
   }
-  
   saveData();
   renderRoleList();
   if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
 }
+
 function updateChain(index, value) {
   characters[index].chain = parseInt(value, 10);
   saveData();
   renderRoleList();
   if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
-  // 如果当前选中的角色就是被更新的角色，重新渲染属性面板
-  if (currentSelectedRoleIndex === index) {
-    showRoleDetail(index);
-  }
+  if (currentSelectedRoleIndex === index) showRoleDetail(index);
 }
 function updateWeapon(index, value) {
   characters[index].weapon = parseInt(value, 10);
   saveData();
   renderRoleList();
   if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
-  // 如果当前选中的角色就是被更新的角色，重新渲染属性面板
-  if (currentSelectedRoleIndex === index) {
-    showRoleDetail(index);
-  }
+  if (currentSelectedRoleIndex === index) showRoleDetail(index);
 }
 
 function toggleExtraUse(index) {
   const char = characters[index];
   const isChecked = document.getElementById('extraUseCheckbox').checked;
-  
+
   if (isChecked) {
-    if (!extraUseChars.includes(char.name)) {
-      extraUseChars.push(char.name);
-    }
+    if (!extraUseChars.includes(char.name)) extraUseChars.push(char.name);
   } else {
     const idx = extraUseChars.indexOf(char.name);
     if (idx !== -1) {
       extraUseChars.splice(idx, 1);
-      
       const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.name === char.name).length;
       if (used > char.totalUses) {
         for (let i = teams.length - 1; i >= 0; i--) {
@@ -454,13 +742,11 @@ function toggleExtraUse(index) {
       }
     }
   }
-  
+
   saveData();
   renderRoleList();
   if (document.getElementById('teamPage').classList.contains('hidden') === false) renderTeamPage();
-  if (currentSelectedRoleIndex === index) {
-    showRoleDetail(index);
-  }
+  if (currentSelectedRoleIndex === index) showRoleDetail(index);
 }
 
 function getRemainingUses(char) {
@@ -469,17 +755,23 @@ function getRemainingUses(char) {
   return Math.max(0, total - used);
 }
 
-// 队伍页面渲染
+// ================= 队伍页面渲染 =================
 function renderTeamPage() {
+  if (meta.currentUid == null) {
+    document.getElementById('teamRoleList').innerHTML = '';
+    const section = document.getElementById('teamSection');
+    section.innerHTML = '';
+    section.appendChild(emptyHint());
+    return;
+  }
   renderTeamRoleList();
   renderTeams();
 }
 
-// 左侧角色池
 function renderTeamRoleList() {
   const list = document.getElementById('teamRoleList');
   list.innerHTML = '';
-  
+
   characters.forEach((char, index) => {
     if (!char.owned) return;
     const remaining = getRemainingUses(char);
@@ -502,59 +794,37 @@ function renderTeamRoleList() {
     }
 
     const uses = document.createElement('div');
-    if (extraUseChars.includes(char.name)) {
-      uses.className = 'uses yellow';
-    } else {
-      uses.className = `uses ${remaining > 0 ? 'green' : 'red'}`;
-    }
+    if (extraUseChars.includes(char.name)) uses.className = 'uses yellow';
+    else uses.className = `uses ${remaining > 0 ? 'green' : 'red'}`;
     uses.textContent = `${remaining}`;
     item.appendChild(uses);
 
     item.addEventListener('dragstart', (e) => {
       const currentRemaining = getRemainingUses(char);
-      if (currentRemaining <= 0) {
-        e.preventDefault();
-        return;
-      }
+      if (currentRemaining <= 0) { e.preventDefault(); return; }
       e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'character', name: char.name }));
     });
 
     item.addEventListener('dragover', (e) => e.preventDefault());
 
-    // 添加点击事件，实现点击角色自动添加到队伍
     item.addEventListener('click', () => {
       const currentRemaining = getRemainingUses(char);
-      if (currentRemaining <= 0) {
-        return;
-      }
-      
-      // 寻找第一个空槽位
+      if (currentRemaining <= 0) return;
       let foundSlot = false;
       for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
         const team = teams[teamIndex];
-        // 检查队伍中是否已存在该角色
         const teamHasChar = team.slots.some(slot => slot && slot.name === char.name);
-        if (teamHasChar) {
-          continue;
-        }
-        
+        if (teamHasChar) continue;
         for (let slotIndex = 0; slotIndex < team.slots.length; slotIndex++) {
           if (team.slots[slotIndex] === null) {
-            // 找到空槽位，添加角色
             team.slots[slotIndex] = { name: char.name };
             foundSlot = true;
             break;
           }
         }
-        if (foundSlot) {
-          break;
-        }
+        if (foundSlot) break;
       }
-      
-      if (foundSlot) {
-        saveData();
-        renderTeamPage();
-      }
+      if (foundSlot) { saveData(); renderTeamPage(); }
     });
 
     list.appendChild(item);
@@ -584,20 +854,12 @@ function renderTeams() {
     teamHeader.appendChild(handle);
     teamHeader.appendChild(label);
 
-    // 添加删除队伍按钮
     const deleteTeamBtn = document.createElement('div');
     deleteTeamBtn.className = 'delete-team-btn';
     deleteTeamBtn.textContent = '×';
     deleteTeamBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (teams.length > 1) {
-        // 释放队伍中的角色
-        team.slots.forEach(slot => {
-          if (slot) {
-            // 角色会在下次渲染时自动释放
-          }
-        });
-        // 删除队伍
         teams.splice(teamIndex, 1);
         saveData();
         renderTeamPage();
@@ -630,7 +892,6 @@ function renderTeams() {
           const fromChar = teams[fromTeam].slots[fromSlot];
           const targetTeamHasChar = teams[teamIndex].slots.some(s => s && s.name === fromChar.name);
           if (!targetTeamHasChar || fromTeam === teamIndex) {
-            // 交换角色位置
             const temp = teams[fromTeam].slots[fromSlot];
             teams[fromTeam].slots[fromSlot] = team.slots[slotIndex];
             team.slots[slotIndex] = temp;
@@ -641,21 +902,20 @@ function renderTeams() {
       });
 
       if (slot) {
-      const img = document.createElement('img');
-      img.src = getAvatar(slot.name);
-      img.alt = slot.name;
-      img.onerror = function() { handleImgError(this); };
-      slotDiv.appendChild(img);
+        const img = document.createElement('img');
+        img.src = getAvatar(slot.name);
+        img.alt = slot.name;
+        img.onerror = function () { handleImgError(this); };
+        slotDiv.appendChild(img);
 
-      const char = characters.find(c => c.name === slot.name);
-      if (char && showAttr) {
-        const attr = document.createElement('div');
-        attr.className = 'attr';
-        attr.textContent = `${char.chain}+${char.weapon}`;
-        slotDiv.appendChild(attr);
-      }
+        const char = characters.find(c => c.name === slot.name);
+        if (char && showAttr) {
+          const attr = document.createElement('div');
+          attr.className = 'attr';
+          attr.textContent = `${char.chain}+${char.weapon}`;
+          slotDiv.appendChild(attr);
+        }
 
-        // 添加删除按钮
         const deleteBtn = document.createElement('div');
         deleteBtn.className = 'delete-btn';
         deleteBtn.textContent = '×';
@@ -682,7 +942,7 @@ function renderTeams() {
     section.appendChild(row);
   });
 
-  // 添加队伍按钮（放到底部工具行，位于配置按钮左侧）
+  // 添加队伍按钮（放到底部工具行）
   const addTeamBtn = document.createElement('button');
   addTeamBtn.className = 'add-team-btn';
   addTeamBtn.textContent = '添加队伍';
@@ -717,14 +977,38 @@ function renderTeams() {
   updateLayoutScale();
 }
 
-// 初始化
-const savedCurrentUser = localStorage.getItem('currentUser');
-if (savedCurrentUser) {
-  currentUser = parseInt(savedCurrentUser, 10);
-} else {
-  currentUser = 1;
-  localStorage.setItem('currentUser', '1');
+// ================= URL 带码访问自动导入 =================
+// 形如 wuwamatrix.pages.dev/import#状态码
+function handleUrlHashImport() {
+  const hash = location.hash;
+  if (!hash || hash.length < 2) return;
+  const code = hash.slice(1);
+  const uid = addUser(`用户${meta.seq + 1}`, true); // 新用户追加到底部并设为当前
+  const res = importStateToUser(uid, code);
+  if (!res.ok) {
+    // 解析失败：保留新增用户，但不写入码内数据，给出提示
+    window.__lastImportError = res.error;
+  }
+  loadUser(uid);
 }
-loadData();
-document.getElementById('userSelect').value = currentUser.toString();
-showPage('role')
+
+// ================= 初始化 =================
+migrateLegacy();
+loadMeta();
+
+// 读取全局开关
+const savedGlobalShowAttr = localStorage.getItem('globalShowAttr');
+if (savedGlobalShowAttr !== null) showAttr = savedGlobalShowAttr === 'true';
+document.getElementById('attrToggle').checked = showAttr;
+
+// 绑定事件
+document.getElementById('attrToggle').addEventListener('change', function () {
+  showAttr = this.checked;
+  saveData();
+  rerenderCurrentPage();
+});
+
+if (meta.currentUid != null) loadUser(meta.currentUid);
+handleUrlHashImport();
+renderUserList();
+showPage('role');

@@ -107,6 +107,9 @@ input:checked + .toggle-slider {
 input:checked + .toggle-slider:before {
   transform: translateX(20px);
 }
+#userMgrBtn {
+  margin-left: auto;
+}
 .clear-all-btn {
   background-color: #dc3545;
 }
@@ -482,3 +485,193 @@ input:checked + .toggle-slider:before {
     font-size: 24px;
   }
 }
+
+/* ================= 用户管理 & 模态窗 ================= */
+.overlay {
+  position: fixed;
+  width: 100vw;
+  height: 100vh;
+  top: 0;
+  left: 0;
+  background: rgba(0,0,0,.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.overlay.show { display: flex; }
+#userModal.show { align-items: flex-start; }
+#userModal.show .modal { margin-top: 16px; }
+.modal {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+.modal-title {
+  padding: 14px 18px;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#userModal .modal { width: min(460px, 92vw); }
+.um-user-list {
+  padding: 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 70vh;
+}
+.um-user-list::-webkit-scrollbar { width: 8px; }
+.um-user-list::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+
+.user-card {
+  background: #2a2a2a;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: border-color .2s, background .2s;
+}
+.user-card.active { border-color: #4ade80; background: #22331f; }
+.card-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.name-row { display: flex; align-items: center; gap: 5px; }
+.user-name { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #777;
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.edit-btn:hover { color: #fff; background: rgba(255,255,255,.08); }
+.name-input {
+  background: #121212;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 14px;
+  width: 130px;
+}
+.user-desc { font-size: 12px; color: #888; }
+.card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.card-actions button {
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: none;
+  color: #fff;
+  font-size: 12px;
+}
+.btn-import  { background: #2563eb; }
+.btn-import:hover  { background: #1d4fd8; }
+.btn-export  { background: #ca8a04; }
+.btn-export:hover  { background: #a97707; }
+.btn-delete  { background: #dc2626; }
+.btn-delete:hover  { background: #b91c1c; }
+
+.add-user {
+  border: 2px dashed #555;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: transparent;
+  color: #888;
+  transition: border-color .2s, color .2s;
+}
+.add-user:hover { border-color: #4ade80; color: #4ade80; }
+.add-user button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* 小窗：导出 / 导入 / 确认 */
+.small-modal { width: min(420px, 92vw); }
+.modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.code-row { display: flex; align-items: center; gap: 8px; }
+.code-label { flex-shrink: 0; font-size: 13px; color: #ddd; white-space: nowrap; }
+.code-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-all;
+  background: #121212;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #ddd;
+}
+.copy-btn {
+  flex-shrink: 0;
+  width: 56px;
+  padding: 4px 0;
+  text-align: center;
+  background: #374151;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.copy-btn:hover { background: #4b5563; }
+.import-input {
+  width: 100%;
+  background: #121212;
+  border: 1px solid #555;
+  color: #fff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.modal-btn-row { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-btn {
+  padding: 6px 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: none;
+  font-size: 13px;
+  color: #fff;
+}
+.btn-primary { background: #2563eb; }
+.btn-primary:hover { background: #1d4fd8; }
+.btn-danger  { background: #dc2626; }
+.btn-danger:hover  { background: #b91c1c; }
+.btn-ghost   { background: #374151; }
+.btn-ghost:hover  { background: #4b5563; }
+.msg { font-size: 13px; }
+.msg.err { color: #f87171; }
+.msg.ok  { color: #4ade80; }
+.close-x {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+.close-x:hover { color: #fff; }

@@ -19,13 +19,7 @@
                 <span class="toggle-slider"></span>
             </label>
         </div>
-        <select id="userSelect">
-            <option value="1">用户1</option>
-            <option value="2">用户2</option>
-            <option value="3">用户3</option>
-            <option value="4">用户4</option>
-            <option value="5">用户5</option>
-        </select>
+        <button id="userMgrBtn">用户管理</button>
         <button id="clearBtn" class="clear-all-btn">清空数据</button>
     </nav>
     <div id="rolePage" class="page">
@@ -52,6 +46,64 @@
             </div>
         </div>
     </div>
+
+    <!-- 用户管理窗口 -->
+    <div id="userModal" class="overlay">
+        <div class="modal">
+            <div class="modal-title">
+                <span>用户管理</span>
+                <button class="close-x" data-close>×</button>
+            </div>
+            <div id="userList" class="um-user-list"></div>
+        </div>
+    </div>
+
+    <!-- 导出小窗 -->
+    <div id="exportModal" class="overlay">
+        <div class="modal small-modal">
+            <div class="modal-title">
+                <span>导出</span>
+                <button class="close-x" data-close>×</button>
+            </div>
+            <div class="modal-body">
+                <div class="code-row"><span class="code-label">状态码：</span><span class="code-value" id="exportCodeLine"></span><button class="copy-btn" data-copy="exportCodeLine">复制</button></div>
+                <div class="code-row"><span class="code-label">含状态码链接：</span><span class="code-value" id="exportUrlLine"></span><button class="copy-btn" data-copy="exportUrlLine">复制</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入小窗 -->
+    <div id="importModal" class="overlay">
+        <div class="modal small-modal">
+            <div class="modal-title">
+                <span>导入</span>
+                <button class="close-x" data-close>×</button>
+            </div>
+            <div class="modal-body">
+                <input id="importInput" class="import-input" placeholder="输入状态码，或含状态码的完整链接">
+                <div class="modal-btn-row">
+                    <button class="modal-btn btn-primary" id="importOk">确定</button>
+                    <button class="modal-btn btn-ghost" data-close>取消</button>
+                </div>
+                <div id="importMsg" class="msg"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除确认 -->
+    <div id="deleteModal" class="overlay">
+        <div class="modal small-modal">
+            <div class="modal-title"><span>删除用户</span></div>
+            <div class="modal-body">
+                <div class="msg">确定要删除用户“<span id="deleteName"></span>”吗？此操作不可恢复。</div>
+                <div class="modal-btn-row">
+                    <button class="modal-btn btn-danger" id="deleteOk">删除</button>
+                    <button class="modal-btn btn-ghost" data-close>取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="characters.js"></script>
     <script src="script.js"></script>
 </body>
