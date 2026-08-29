@@ -148,6 +148,35 @@ input:checked + .toggle-slider:before {
   box-sizing: border-box;
 }
 
+/* 角色页左侧面板：状态码条随角色池一起纵向滚动，滚动到底部可见 */
+.left-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #333;
+  padding: 10px 0 0;
+  margin-top: 12px;
+}
+.left-status-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #888;
+  white-space: nowrap;
+}
+.left-status-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-all;
+  background: #121212;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #ddd;
+  user-select: text;
+}
+.left-status-bar .copy-btn { width: 48px; }
+
 #roleList {
   margin-bottom: 0;
 }
