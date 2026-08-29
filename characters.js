@@ -64,11 +64,12 @@ const characterTemplates = [
 
   { id: 70, name: '秧秧·玄翎', totalUses: 1 },
   { id: 71, name: '穗穗', totalUses: 2 },
+  { id: 73, name: '清宵', totalUses: 1 },
+  { id: 74, name: '景燃', totalUses: 1 },
 
   // 未实装，id不确定 矩阵体力不确定
 
-  { id: 101, name: '清宵', totalUses: 1 },
-  { id: 102, name: '景燃', totalUses: 1 },
+
   { id: 103, name: '心', totalUses: 1 },
   { id: 104, name: '锁暝', totalUses: 1 },
 
