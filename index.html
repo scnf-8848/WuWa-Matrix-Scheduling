@@ -25,6 +25,11 @@
     <div id="rolePage" class="page">
         <div class="left-panel">
             <div id="roleList" class="role-list"></div>
+            <div id="leftStatusBar" class="left-status-bar">
+                <span class="left-status-label">分享码：</span>
+                <span class="left-status-code" id="leftStatusCode"></span>
+                <button class="copy-btn" data-copy="leftStatusCode">复制</button>
+            </div>
         </div>
         <div class="right-panel">
             <div id="roleDetail" class="role-detail">
@@ -66,7 +71,7 @@
                 <button class="close-x" data-close>×</button>
             </div>
             <div class="modal-body">
-                <div class="code-row"><span class="code-label">状态码：</span><span class="code-value" id="exportCodeLine"></span><button class="copy-btn" data-copy="exportCodeLine">复制</button></div>
+                <div class="code-row"><span class="code-label">分享码：</span><span class="code-value" id="exportCodeLine"></span><button class="copy-btn" data-copy="exportCodeLine">复制</button></div>
                 <div class="code-row"><span class="code-label">链接：</span><span class="code-value" id="exportUrlLine"></span><button class="copy-btn" data-copy="exportUrlLine">复制</button></div>
             </div>
         </div>
@@ -80,10 +85,9 @@
                 <button class="close-x" data-close>×</button>
             </div>
             <div class="modal-body">
-                <input id="importInput" class="import-input" placeholder="输入状态码，或含状态码的完整链接">
+                <input id="importInput" class="import-input" placeholder="输入分享码，或含分享码的完整链接">
                 <div class="modal-btn-row">
                     <button class="modal-btn btn-primary" id="importOk">确定</button>
-                    <button class="modal-btn btn-ghost" data-close>取消</button>
                 </div>
                 <div id="importMsg" class="msg"></div>
             </div>
