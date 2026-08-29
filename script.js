@@ -700,6 +700,14 @@ function renderRoleList() {
     });
     item.appendChild(statusBtn);
 
+    // 额外疲劳角色：头像右上角黄色“+1”标识（参照队伍页 uses 样式）
+    if (extraUseChars.includes(char.name)) {
+      const extraBadge = document.createElement('div');
+      extraBadge.className = 'uses yellow';
+      extraBadge.textContent = '+1';
+      item.appendChild(extraBadge);
+    }
+
     item.addEventListener('click', () => showRoleDetail(index));
 
     if (char.owned) ownedSection.querySelector('.role-list').appendChild(item);
