@@ -983,20 +983,26 @@ function handleUrlHashImport() {
   const hash = location.hash;
   if (!hash || hash.length < 2) return;
   const code = hash.slice(1);
+  let matched = false;
   // 若已有用户的编码状态与链接码一致，直接激活该用户，不新建
   for (const u of meta.users) {
     if (encodeUserState(u.uid) === code) {
       loadUser(u.uid);
-      return;
+      matched = true;
+      break;
     }
   }
-  const uid = addUser(`用户${meta.seq + 1}`, true); // 新建用户并设为当前
-  const res = importStateToUser(uid, code);
-  if (!res.ok) {
-    // 解析失败：保留新增用户，但不写入码内数据，给出提示
-    window.__lastImportError = res.error;
+  if (!matched) {
+    const uid = addUser(`用户${meta.seq + 1}`, true); // 新建用户并设为当前
+    const res = importStateToUser(uid, code);
+    if (!res.ok) {
+      // 解析失败：保留新增用户，但不写入码内数据，给出提示
+      window.__lastImportError = res.error;
+    }
+    loadUser(uid);
   }
-  loadUser(uid);
+  // 清除 URL 中的状态码，避免之后每次打开链接都命中分享者的数据
+  history.replaceState(null, '', location.pathname + location.search);
 }
 
 // ================= 初始化 =================
