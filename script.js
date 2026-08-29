@@ -182,13 +182,13 @@ function encodeUserState(uid) {
 // 解析状态码 → {ok, states:[数值...]} 或 {ok:false, error}
 function decodeState(code) {
   const chars = [...code];
-  if (chars.length < 3) return { ok: false, error: '状态码过短' };
-  if (!(chars[0] in B64MAP)) return { ok: false, error: '无效的状态码' };
+  if (chars.length < 3) return { ok: false, error: '分享码过短' };
+  if (!(chars[0] in B64MAP)) return { ok: false, error: '无效的分享码' };
   const version = B64MAP[chars[0]];
-  if (version !== 0) return { ok: false, error: `不支持的状态码版本（${version}）` };
+  if (version !== 0) return { ok: false, error: `不支持的分享码版本（${version}）` };
   const body = chars.slice(0, -1).join('');
   const checksum = chars[chars.length - 1];
-  if (calcChecksum(body) !== checksum) return { ok: false, error: '校验失败：状态码可能已损坏' };
+  if (calcChecksum(body) !== checksum) return { ok: false, error: '校验失败：分享码可能已损坏' };
   return { ok: true, version, states: chars.slice(1, -1).map(c => B64MAP[c]) };
 }
 
@@ -436,7 +436,7 @@ document.querySelectorAll('.copy-btn').forEach(btn => {
 document.getElementById('importOk').addEventListener('click', () => {
   const val = document.getElementById('importInput').value.trim();
   const msg = document.getElementById('importMsg');
-  if (!val) { msg.textContent = '请输入状态码或链接'; msg.className = 'msg err'; return; }
+  if (!val) { msg.textContent = '请输入分享码或链接'; msg.className = 'msg err'; return; }
   if (importTarget == null) return;
   const hashIdx = val.lastIndexOf('#');
   const code = hashIdx >= 0 ? val.slice(hashIdx + 1) : val;
@@ -580,6 +580,16 @@ function emptyHint() {
 function renderRoleList() {
   const list = document.getElementById('roleList');
   list.innerHTML = '';
+
+  // 底部状态码条：随当前用户刷新，无用户时隐藏
+  const statusBar = document.getElementById('leftStatusBar');
+  const statusCodeEl = document.getElementById('leftStatusCode');
+  if (meta.currentUid != null) {
+    statusCodeEl.textContent = encodeUserState(meta.currentUid);
+    statusBar.style.display = 'flex';
+  } else {
+    statusBar.style.display = 'none';
+  }
 
   if (meta.currentUid == null) { list.appendChild(emptyHint()); return; }
 
