@@ -614,7 +614,14 @@ input:checked + .toggle-slider:before {
 .small-modal { width: min(420px, 92vw); }
 .modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 .code-row { display: flex; align-items: center; gap: 8px; }
-.code-label { flex-shrink: 0; font-size: 13px; color: #ddd; white-space: nowrap; }
+.code-label {
+  flex-shrink: 0;
+  width: 5.4em;
+  text-align: right;
+  font-size: 13px;
+  color: #ddd;
+  white-space: nowrap;
+}
 .code-value {
   flex: 1 1 auto;
   min-width: 0;
