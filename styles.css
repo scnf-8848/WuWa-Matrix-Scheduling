@@ -96,7 +96,8 @@ nav button:hover {
   height: 16px;
   width: 16px;
   left: 2px;
-  bottom: 2px;
+  top: 50%;
+  transform: translateY(-50%);
   background-color: white;
   transition: .4s;
   border-radius: 50%;
@@ -105,7 +106,7 @@ input:checked + .toggle-slider {
   background-color: #4ade80;
 }
 input:checked + .toggle-slider:before {
-  transform: translateX(20px);
+  transform: translateX(20px) translateY(-50%);
 }
 #userMgrBtn {
   margin-left: auto;
@@ -322,7 +323,8 @@ input:checked + .toggle-slider:before {
 .attr-group label {
   color: #fff;
   font-weight: 600;
-  min-width: 70px;
+  min-width: 100px;
+  text-align: right;
 }
 
 #extraUseCheckbox {
@@ -495,6 +497,43 @@ input:checked + .toggle-slider:before {
     width: 200px;
     height: 100px;
     font-size: 32px;
+  }
+}
+
+/* 移动端（竖屏且较窄）：压缩角色详情，使右面板内容尽量在半屏内完整显示、减少滚动 */
+@media screen and (orientation: portrait) and (max-width: 768px) {
+  .role-detail {
+    padding: 10px;
+  }
+  .role-detail img {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 6px;
+  }
+  .role-detail h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+  }
+  .attr-group {
+    margin-bottom: 8px;
+    gap: 8px;
+    justify-content: center;
+  }
+  .attr-group label {
+    min-width: 60px;
+    font-size: 13px;
+  }
+  .attr-buttons {
+    gap: 4px;
+  }
+  .attr-btn {
+    width: 30px;
+    height: 30px;
+    font-size: 13px;
+  }
+  #extraUseCheckbox {
+    width: 18px;
+    height: 18px;
   }
 }
 
