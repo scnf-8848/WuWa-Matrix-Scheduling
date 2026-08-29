@@ -1011,8 +1011,9 @@ function handleUrlHashImport() {
     }
     loadUser(uid);
   }
-  // 清除 URL 中的状态码，避免之后每次打开链接都命中分享者的数据
-  history.replaceState(null, '', location.pathname + location.search);
+  // 清除 URL 中的状态码与 /import 入口路径，避免之后每次打开链接都命中分享者的数据
+  const cleanPath = location.pathname.replace(/\/import$/, '') || '/';
+  history.replaceState(null, '', cleanPath + location.search);
 }
 
 // ================= 初始化 =================
