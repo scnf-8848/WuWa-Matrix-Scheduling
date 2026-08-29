@@ -473,6 +473,12 @@ document.querySelectorAll('.copy-btn').forEach(btn => {
     if (line) copyToClipboard(line.textContent.trim(), btn);
   });
 });
+// 分享码条导入：作用于当前用户（复用用户管理导入弹窗）
+document.getElementById('leftStatusImport').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (meta.currentUid == null) return;
+  openImport(meta.currentUid);
+});
 // 导入确定：接受纯状态码或含状态码的链接，自动提取'#'后的码
 document.getElementById('importOk').addEventListener('click', () => {
   const val = document.getElementById('importInput').value.trim();
