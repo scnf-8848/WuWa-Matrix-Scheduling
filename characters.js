@@ -70,8 +70,8 @@ const characterTemplates = [
   // 未实装，id不确定 矩阵体力不确定
 
 
-  { id: 103, name: '心', totalUses: 1 },
-  { id: 104, name: '锁暝', totalUses: 1 },
+  { id: 1003, name: '心', totalUses: 1 },
+  { id: 1004, name: '锁暝', totalUses: 1 },
 
   //{ id: 104, name: 'None', totalUses: 1 },
   // ...后续手动追加
