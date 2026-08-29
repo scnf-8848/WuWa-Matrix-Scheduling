@@ -702,6 +702,7 @@ input:checked + .toggle-slider:before {
 .msg { font-size: 13px; }
 .msg.err { color: #f87171; }
 .msg.ok  { color: #4ade80; }
+.msg.hint { color: #9ca3af; font-size: 12px; }
 .close-x {
   background: none;
   border: none;
