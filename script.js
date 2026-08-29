@@ -151,49 +151,85 @@ function calcChecksum(str) {
 // 已实装（id<=1000）角色子集
 function implemented() { return characterTemplates.filter(t => t.id <= 1000); }
 
-// 单个角色状态 <-> 0..42 数值：0 未持有；≥1 持有，v-1 = chain*6 + weapon
+// ================= 方案一：武器有无 + bit 打包压缩 =================
+// 单角色状态 4bit(0-14)：0 未持有；≥1 持有，(v-1) = chain*2 + 武器有无
+// 额外疲劳值用空闲值 15(1111) 作哨兵：勾选的角色状态后追加 4bit=1111
+// 不定长需加 1 字符角色数 N 前缀；新增角色天然兼容（老码 N 不含新角即未拥有）
+// 版本号 v1；本地仍保留精确武器 1-5，仅分享码压缩为有无
 function stateToValue(c) {
   if (!c.owned) return 0;
-  return 1 + c.chain * 6 + c.weapon;
+  return 1 + c.chain * 2 + (c.weapon > 0 ? 1 : 0);
 }
 function valueToState(c, v) {
   if (!v) { c.owned = false; c.chain = 0; c.weapon = 0; return; }
   c.owned = true;
   const t = v - 1;
-  c.chain = Math.floor(t / 6);
-  c.weapon = t % 6;
+  c.chain = Math.floor(t / 2);
+  c.weapon = (t % 2 === 1) ? 1 : 0; // 有无：导出无法保留 1-5，仅有无
 }
 
 // 将任意用户库状态编码为状态码
 function encodeUserState(uid) {
   const raw = localStorage.getItem(`userData_${uid}`);
-  let charData = {};
-  if (raw) { try { charData = (JSON.parse(raw).charData) || {}; } catch { charData = {}; } }
+  let d = {};
+  if (raw) { try { d = JSON.parse(raw); } catch { d = {}; } }
+  const charData = d.charData || {};
+  const extraSet = new Set(d.extraUseChars || []);
   const chars = characterTemplates.map(t => {
     const uc = charData[t.name] || { owned: false, chain: 0, weapon: 0 };
     return { ...t, ...uc };
   });
-  const version = 0;
   const implChars = chars.filter(c => c.id <= 1000);
-  const body = B64[version] + implChars.map(c => B64[stateToValue(c)]).join('');
+  // 拼 4bit 状态 + 额外疲劳哨兵(1111)
+  let bits = '';
+  implChars.forEach(c => {
+    const v = stateToValue(c);
+    bits += String((v >> 3) & 1) + String((v >> 2) & 1) + String((v >> 1) & 1) + String(v & 1);
+    if (extraSet.has(c.name)) bits += '1111';
+  });
+  // 6bit → 1 字符
+  bits += '0'.repeat((6 - (bits.length % 6)) % 6);
+  let content = '';
+  for (let i = 0; i < bits.length; i += 6) content += B64[parseInt(bits.slice(i, i + 6), 2)];
+  const version = 1;
+  const body = B64[version] + B64[implChars.length] + content;
   return body + calcChecksum(body);
 }
 
-// 解析状态码 → {ok, states:[数值...]} 或 {ok:false, error}
+// 解析状态码 → {ok, version, states:[数值...], extra:Set<下标>} 或 {ok:false, error}
 function decodeState(code) {
   const chars = [...code];
-  if (chars.length < 3) return { ok: false, error: '分享码过短' };
+  if (chars.length < 4) return { ok: false, error: '分享码过短' };
   if (!(chars[0] in B64MAP)) return { ok: false, error: '无效的分享码' };
   const version = B64MAP[chars[0]];
-  if (version !== 0) return { ok: false, error: `不支持的分享码版本（${version}）` };
+  if (version !== 1) return { ok: false, error: `不支持的分享码版本（${version}）` };
+  if (!(chars[1] in B64MAP)) return { ok: false, error: '无效的分享码' };
+  const count = B64MAP[chars[1]];
   const body = chars.slice(0, -1).join('');
   const checksum = chars[chars.length - 1];
   if (calcChecksum(body) !== checksum) return { ok: false, error: '校验失败：分享码可能已损坏' };
-  return { ok: true, version, states: chars.slice(1, -1).map(c => B64MAP[c]) };
+  // content 字符展开为 bit 流
+  let bits = '';
+  for (let i = 2; i < chars.length - 1; i++) bits += B64MAP[chars[i]].toString(2).padStart(6, '0');
+  let pos = 0;
+  const read4 = () => {
+    if (pos + 4 > bits.length) return null;
+    const v = parseInt(bits.slice(pos, pos + 4), 2); pos += 4; return v;
+  };
+  const peek4 = () => (pos + 4 <= bits.length) ? parseInt(bits.slice(pos, pos + 4), 2) : null;
+  // 按 N 读取状态值，peek 到 1111 即判定前一位为额外疲劳并消费
+  const states = [];
+  const extra = new Set();
+  for (let i = 0; i < count; i++) {
+    const v = read4();
+    if (v === null || v > 14) return { ok: false, error: '分享码数据损坏' };
+    states.push(v);
+    if (peek4() === 15) { read4(); extra.add(i); }
+  }
+  return { ok: true, version, states, extra };
 }
 
-// 把解码结果写入指定用户的角色库（覆盖字符点数据，交队伍/体力）
-// 按 min(码长, 当前角色数) 导入，多出的新角置空（供手工编辑）
+// 把解码结果写入指定用户的角色库（覆盖角色数据，交队伍，写额外疲劳）
 function importStateToUser(uid, code) {
   const res = decodeState(code);
   if (!res.ok) return res;
@@ -204,10 +240,15 @@ function importStateToUser(uid, code) {
   });
   const charData = {};
   chars.forEach(c => { charData[c.name] = { owned: c.owned, chain: c.chain, weapon: c.weapon }; });
+  // 额外疲劳角色（按 implemented 顺序取 res.extra 下标）
+  const implNames = implemented().map(t => t.name);
+  const extraUseChars = [];
+  res.extra.forEach(i => { const n = implNames[i]; if (n) extraUseChars.push(n); });
   let d = {};
   const raw = localStorage.getItem(`userData_${uid}`);
   if (raw) { try { d = JSON.parse(raw); } catch { d = {}; } }
   d.charData = charData;
+  d.extraUseChars = extraUseChars;
   localStorage.setItem(`userData_${uid}`, JSON.stringify(d));
   return { ok: true };
 }
