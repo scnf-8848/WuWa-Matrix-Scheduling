@@ -10,17 +10,23 @@
 </head>
 <body>
     <nav>
-        <button id="roleBtn">角色</button>
-        <button id="teamBtn">队伍</button>
-        <div class="toggle-container">
-            <label class="toggle-label">显示链+武</label>
-            <label class="toggle-switch">
-                <input type="checkbox" id="attrToggle" checked>
-                <span class="toggle-slider"></span>
-            </label>
+        <div class="nav-left">
+            <div class="toggle-container">
+                <label class="toggle-label">显示链+武</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="attrToggle" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
         </div>
-        <button id="userMgrBtn">用户管理</button>
-        <button id="clearBtn" class="clear-all-btn">清空数据</button>
+        <div class="nav-center">
+            <button id="roleBtn">1-角色</button>
+            <button id="teamBtn">2-配队</button>
+        </div>
+        <div class="nav-right">
+            <button id="userMgrBtn">用户管理</button>
+            <button id="clearBtn" class="clear-all-btn">清空数据</button>
+        </div>
     </nav>
     <div id="rolePage" class="page">
         <div class="left-panel">
