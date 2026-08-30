@@ -39,13 +39,16 @@ body {
   box-shadow: none;
 }
 nav {
-  display: flex;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   padding: 10px;
   background-color: #1e1e1e;
   border-bottom: 1px solid #333;
 }
+.nav-left { display: flex; align-items: center; justify-content: flex-start; }
+.nav-center { display: flex; align-items: center; justify-content: center; }
+.nav-right { display: flex; align-items: center; justify-content: flex-end; }
 nav button {
   margin-right: 10px;
   padding: 8px 16px;
@@ -55,13 +58,14 @@ nav button {
   border: none;
   border-radius: 5px;
 }
+.nav-right button:last-child { margin-right: 0; }
+.nav-center button:last-child { margin-right: 0; }
 nav button:hover {
   background-color: #555;
 }
 .toggle-container {
   display: flex;
   align-items: center;
-  margin-right: 15px;
 }
 .toggle-label {
   color: #fff;
@@ -107,9 +111,6 @@ input:checked + .toggle-slider {
 }
 input:checked + .toggle-slider:before {
   transform: translateX(20px) translateY(-50%);
-}
-#userMgrBtn {
-  margin-left: auto;
 }
 .clear-all-btn {
   background-color: #dc3545;
