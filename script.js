@@ -430,9 +430,11 @@ function rerenderCurrentPage() {
   else renderTeamPage();
 }
 
-// 清空所有数据
+// 清空所有数据（先弹确认窗）
 function clearAllData() {
-  if (!confirm('确定要清空所有用户数据吗？此操作将清除所有用户及其角色、队伍数据，且无法恢复。')) return;
+  showModal('clearModal');
+}
+function confirmClearAll() {
   if (meta.users) meta.users.forEach(u => localStorage.removeItem(`userData_${u.uid}`));
   meta = { seq: 0, currentUid: null, users: [] };
   localStorage.removeItem('globalShowAttr');
@@ -442,6 +444,7 @@ function clearAllData() {
   if (at) at.checked = true;
   renderUserList();
   rerenderCurrentPage();
+  hideModal('clearModal');
 }
 
 // 导航
@@ -503,6 +506,9 @@ document.getElementById('importOk').addEventListener('click', () => {
 document.getElementById('importInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('importOk').click();
 });
+// 清空数据确认
+document.getElementById('clearOk').addEventListener('click', confirmClearAll);
+
 // 删除确认
 document.getElementById('deleteOk').addEventListener('click', () => {
   if (deleteTarget == null) return;
@@ -610,6 +616,9 @@ window.addEventListener('resize', function () {
 function showPage(page) {
   document.getElementById('rolePage').classList.toggle('hidden', page !== 'role');
   document.getElementById('teamPage').classList.toggle('hidden', page !== 'team');
+  // 导航激活态：高亮当前页按钮
+  document.getElementById('roleBtn').classList.toggle('active', page === 'role');
+  document.getElementById('teamBtn').classList.toggle('active', page === 'team');
   if (page === 'role') renderRoleList();
   if (page === 'team') renderTeamPage();
 }
@@ -680,7 +689,8 @@ function renderRoleList() {
       item.appendChild(attr);
     }
 
-    const statusBtn = document.createElement('div');
+    const statusBtn = document.createElement('button');
+    statusBtn.type = 'button';
     statusBtn.className = `status-btn ${char.owned ? 'remove' : ''}`;
     statusBtn.textContent = char.owned ? '×' : '↑';
     statusBtn.addEventListener('click', (e) => {
@@ -919,7 +929,8 @@ function renderTeams() {
     teamHeader.appendChild(handle);
     teamHeader.appendChild(label);
 
-    const deleteTeamBtn = document.createElement('div');
+    const deleteTeamBtn = document.createElement('button');
+    deleteTeamBtn.type = 'button';
     deleteTeamBtn.className = 'delete-team-btn';
     deleteTeamBtn.textContent = '×';
     deleteTeamBtn.addEventListener('click', (e) => {
@@ -981,7 +992,8 @@ function renderTeams() {
           slotDiv.appendChild(attr);
         }
 
-        const deleteBtn = document.createElement('div');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
         deleteBtn.className = 'delete-btn';
         deleteBtn.textContent = '×';
         deleteBtn.addEventListener('click', (e) => {
