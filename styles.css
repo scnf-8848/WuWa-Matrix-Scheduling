@@ -5,6 +5,11 @@
   box-sizing: border-box;
 }
 
+/* 声明白色为深色主题：阻止移动端浏览器的自动深色模式对背景反相，从而避免产生高对比边框 */
+html {
+  color-scheme: dark;
+}
+
 /* 固定页面高度，禁止整体滚动：仅内部面板（如编队区域）可上下滚动 */
 html,
 body {
@@ -539,6 +544,13 @@ body.pointer-dragging {
   -webkit-user-drag: none;
   pointer-events: none;
   user-select: none;
+}
+
+/* 触屏 + 深色模式下弱化角色头像边框，避免边框在移动端过于明显 */
+@media (prefers-color-scheme: dark) and (pointer: coarse) {
+  .role-item, .team-role-item {
+    border-color: rgba(255, 255, 255, 0.07);
+  }
 }
 
 @media screen and (max-width: 480px) {
