@@ -675,7 +675,7 @@ function renderRoleList() {
   characters.forEach((char, index) => {
     const item = document.createElement('div');
     item.className = 'role-item';
-    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}" onerror="handleImgError(this)">`;
+    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}" draggable="false" onerror="handleImgError(this)">`;
 
     const nameOverlay = document.createElement('div');
     nameOverlay.className = 'name-overlay';
@@ -843,6 +843,181 @@ function renderTeamPage() {
   renderTeams();
 }
 
+/* ===== 方案A：Pointer 拖拽（统一鼠标+触屏）===== */
+const DRAG_THRESHOLD = 8;
+
+function handleDrop(targetTeamIndex, targetSlotIndex, type, source) {
+  const team = teams[targetTeamIndex];
+  const slotValue = team.slots[targetSlotIndex];
+  if (type === 'character') {
+    const name = source.name;
+    const char = characters.find(c => c.name === name);
+    if (!char) return;
+    const rem = getRemainingUses(char);
+    const teamHasChar = team.slots.some(s => s && s.name === name);
+    if ((rem > 0 || (slotValue && slotValue.name === name)) && !teamHasChar) {
+      team.slots[targetSlotIndex] = { name };
+      saveData(); renderTeamPage();
+    }
+  } else if (type === 'slot') {
+    const [fromTeam, fromSlot] = source.index;
+    const fromChar = teams[fromTeam].slots[fromSlot];
+    if (!fromChar) return;
+    const targetTeamHasChar = teams[targetTeamIndex].slots.some(s => s && s.name === fromChar.name);
+    if (!targetTeamHasChar || fromTeam === targetTeamIndex) {
+      const temp = teams[fromTeam].slots[fromSlot];
+      teams[fromTeam].slots[fromSlot] = team.slots[targetSlotIndex];
+      team.slots[targetSlotIndex] = temp;
+      saveData(); renderTeamPage();
+    }
+  }
+}
+
+const PointerDrag = {
+  pid: null, type: null, source: null, isTouch: false,
+  sx: 0, sy: 0, activated: false, holdTimer: null,
+  ghost: null, sourceEl: null,
+  _moveB: null, _endB: null, _noScrollB: null,
+
+  begin(e, type, source, isTouch) {
+    this.pid = e.pointerId;
+    this.type = type; this.source = source; this.isTouch = isTouch;
+    this.sx = e.clientX; this.sy = e.clientY;
+    this.activated = false; this.ghost = null;
+    this.sourceEl = e.target.closest('.slot, .team-role-item');
+
+    this._moveB = this._move.bind(this);
+    this._endB = this._end.bind(this);
+    this._noScrollB = this._noScroll.bind(this);
+    window.addEventListener('pointermove', this._moveB);
+    window.addEventListener('pointerup', this._endB);
+    window.addEventListener('pointercancel', this._endB);
+
+    // 触屏：长按 220ms 未滚动即启用拖拽；鼠标：靠位移阈值即时启用
+    if (isTouch) {
+      this.holdTimer = setTimeout(() => {
+        this.holdTimer = null;
+        if (!this.activated) this._activate(this.sx, this.sy);
+      }, 220);
+    }
+  },
+
+  _move(e) {
+    if (e.pointerId !== this.pid) return;
+    const dx = e.clientX - this.sx, dy = e.clientY - this.sy;
+    if (this.activated) {
+      this._positionGhost(e.clientX, e.clientY);
+      this._highlightTarget(e.clientX, e.clientY);
+      return;
+    }
+    if (this.isTouch) {
+      // 触屏未激活：位移过大判定为「滚动」→ 取消拖拽
+      if (this.holdTimer && Math.hypot(dx, dy) > 10) {
+        clearTimeout(this.holdTimer); this.holdTimer = null;
+        this._cancel();
+      }
+      return;
+    }
+    if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    this._activate(this.sx + dx, this.sy + dy);
+  },
+
+  _activate(x, y) {
+    this.activated = true;
+    document.body.classList.add('pointer-dragging');
+    if (this.sourceEl) this.sourceEl.classList.add('drag-sourcing');
+    this._makeGhost();
+    this._positionGhost(x, y);
+    this._highlightTarget(x, y);
+    if (this.isTouch) {
+      window.addEventListener('touchmove', this._noScrollB, { passive: false });
+    }
+  },
+
+  _makeGhost() {
+    if (!this.sourceEl) return;
+    this.ghost = this.sourceEl.cloneNode(true);
+    this.ghost.classList.remove('drag-sourcing');
+    this.ghost.classList.add('drag-ghost');
+    document.body.appendChild(this.ghost);
+  },
+
+  _positionGhost(cx, cy) {
+    if (!this.ghost) return;
+    const r = this.ghost.getBoundingClientRect();
+    this.ghost.style.left = (cx - r.width / 2) + 'px';
+    this.ghost.style.top = (cy - r.height / 2) + 'px';
+  },
+
+  _highlightTarget(cx, cy) {
+    document.querySelectorAll('.slot.drag-target').forEach(s => s.classList.remove('drag-target'));
+    const panel = document.querySelector('.left-panel.release-hover');
+    if (panel) panel.classList.remove('release-hover');
+    const el = document.elementFromPoint(cx, cy);
+    if (el && el.closest('.slot')) {
+      el.closest('.slot').classList.add('drag-target');
+    } else if (this.type === 'slot' && el && el.closest('.left-panel')) {
+      // 槽位拖到左面板 → 提示可释放回角色池
+      el.closest('.left-panel').classList.add('release-hover');
+    }
+  },
+
+  _noScroll(e) { e.preventDefault(); },
+
+  _end(e) {
+    if (e.pointerId !== this.pid) return;
+    const wasActivated = this.activated;
+    const cx = e.clientX, cy = e.clientY;
+    this._cleanup();
+    if (!wasActivated) return;
+    const el = document.elementFromPoint(cx, cy);
+    if (this.type === 'slot') {
+      // 拖到队伍槽 → 换位/搬移；拖到左面板整体 → 释放回角色池
+      const slot = el && el.closest('.slot');
+      if (slot && slot.dataset.index) {
+        const ds = slot.dataset.index.split(',').map(Number);
+        handleDrop(ds[0], ds[1], 'slot', this.source);
+      } else if (el && el.closest('.left-panel')) {
+        const [fromTeam, fromSlot] = this.source.index;
+        teams[fromTeam].slots[fromSlot] = null;
+        saveData(); renderTeamPage();
+      }
+    } else if (this.type === 'character') {
+      const slot = el && el.closest('.slot');
+      if (slot && slot.dataset.index) {
+        const ds = slot.dataset.index.split(',').map(Number);
+        handleDrop(ds[0], ds[1], 'character', this.source);
+      }
+    }
+  },
+
+  _cancel() {
+    this._cleanup();
+  },
+
+  _cleanup() {
+    window.removeEventListener('pointermove', this._moveB);
+    window.removeEventListener('pointerup', this._endB);
+    window.removeEventListener('pointercancel', this._endB);
+    if (this.isTouch) window.removeEventListener('touchmove', this._noScrollB, { passive: false });
+    if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; }
+    document.body.classList.remove('pointer-dragging');
+    if (this.sourceEl) this.sourceEl.classList.remove('drag-sourcing');
+    if (this.ghost) { this.ghost.remove(); this.ghost = null; }
+    document.querySelectorAll('.slot.drag-target').forEach(s => s.classList.remove('drag-target'));
+    const panel = document.querySelector('.left-panel.release-hover');
+    if (panel) panel.classList.remove('release-hover');
+    this.pid = null;
+  }
+};
+
+function setupPointerDrag(el, type, source) {
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    PointerDrag.begin(e, type, source, e.pointerType !== 'mouse');
+  });
+}
+
 function renderTeamRoleList() {
   const list = document.getElementById('teamRoleList');
   list.innerHTML = '';
@@ -853,8 +1028,7 @@ function renderTeamRoleList() {
     const item = document.createElement('div');
     item.className = 'team-role-item';
     if (remaining === 0) item.classList.add('not-available');
-    item.draggable = remaining > 0;
-    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}" onerror="handleImgError(this)">`;
+    item.innerHTML = `<img src="${char.avatar}" alt="${char.name}" draggable="false" onerror="handleImgError(this)">`;
 
     const nameOverlay = document.createElement('div');
     nameOverlay.className = 'name-overlay';
@@ -874,13 +1048,8 @@ function renderTeamRoleList() {
     uses.textContent = `${remaining}`;
     item.appendChild(uses);
 
-    item.addEventListener('dragstart', (e) => {
-      const currentRemaining = getRemainingUses(char);
-      if (currentRemaining <= 0) { e.preventDefault(); return; }
-      e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'character', name: char.name }));
-    });
-
-    item.addEventListener('dragover', (e) => e.preventDefault());
+    // 方案A：Pointer 拖拽（触屏长按 >220ms 或鼠标拖动后启用）
+    if (remaining > 0) setupPointerDrag(item, 'character', { name: char.name });
 
     item.addEventListener('click', () => {
       const currentRemaining = getRemainingUses(char);
@@ -949,38 +1118,13 @@ function renderTeams() {
     team.slots.forEach((slot, slotIndex) => {
       const slotDiv = document.createElement('div');
       slotDiv.className = 'slot';
-      slotDiv.addEventListener('dragover', (e) => e.preventDefault());
-      slotDiv.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-        if (data.type === 'character') {
-          const char = characters.find(c => c.name === data.name);
-          if (!char) return;
-          const rem = getRemainingUses(char);
-          const teamHasChar = team.slots.some(slot => slot && slot.name === char.name);
-          if ((rem > 0 || (slot && slot.name === char.name)) && !teamHasChar) {
-            team.slots[slotIndex] = { name: char.name };
-            saveData();
-            renderTeamPage();
-          }
-        } else if (data.type === 'slot') {
-          const [fromTeam, fromSlot] = data.index;
-          const fromChar = teams[fromTeam].slots[fromSlot];
-          const targetTeamHasChar = teams[teamIndex].slots.some(s => s && s.name === fromChar.name);
-          if (!targetTeamHasChar || fromTeam === teamIndex) {
-            const temp = teams[fromTeam].slots[fromSlot];
-            teams[fromTeam].slots[fromSlot] = team.slots[slotIndex];
-            team.slots[slotIndex] = temp;
-            saveData();
-            renderTeamPage();
-          }
-        }
-      });
+      slotDiv.dataset.index = `${teamIndex},${slotIndex}`;
 
       if (slot) {
         const img = document.createElement('img');
         img.src = getAvatar(slot.name);
         img.alt = slot.name;
+        img.draggable = false;
         img.onerror = function () { handleImgError(this); };
         slotDiv.appendChild(img);
 
@@ -1004,10 +1148,8 @@ function renderTeams() {
         });
         slotDiv.appendChild(deleteBtn);
 
-        slotDiv.draggable = true;
-        slotDiv.addEventListener('dragstart', (e) => {
-          e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'slot', index: [teamIndex, slotIndex] }));
-        });
+        // 方案A：有角色槽位作为拖源（可换位/搬走）
+        setupPointerDrag(slotDiv, 'slot', { index: [teamIndex, slotIndex] });
       }
 
       slotsDiv.appendChild(slotDiv);
