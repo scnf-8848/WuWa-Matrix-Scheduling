@@ -352,6 +352,12 @@ function addNewUser() {
   renderUserList();
 }
 
+// 无任何用户时自动生成 1 个默认用户（新用户首访 / 删除全部用户后），并设为当前
+function ensureUser() {
+  if (meta.users.length > 0) return;
+  addUser('用户1', true);
+}
+
 // 编辑名字
 function startRename(card, u) {
   const nameSpan = card.querySelector('.user-name');
@@ -438,6 +444,8 @@ function confirmClearAll() {
   if (meta.users) meta.users.forEach(u => localStorage.removeItem(`userData_${u.uid}`));
   meta = { seq: 0, currentUid: null, users: [] };
   localStorage.removeItem('globalShowAttr');
+  ensureUser(); // 清空后自动补 1 个默认用户
+  loadUser(meta.currentUid);
   saveMeta();
   showAttr = true;
   const at = document.getElementById('attrToggle');
@@ -516,9 +524,10 @@ document.getElementById('deleteOk').addEventListener('click', () => {
   const wasCurrent = meta.currentUid === uid;
   meta.users = meta.users.filter(u => u.uid !== uid);
   localStorage.removeItem(`userData_${uid}`);
+  if (meta.users.length === 0) ensureUser(); // 删除全部用户后自动补 1 个
   if (wasCurrent) {
-    meta.currentUid = meta.users.length ? Math.min(...meta.users.map(u => u.uid)) : null;
-    if (meta.currentUid != null) loadUser(meta.currentUid);
+    meta.currentUid = meta.users[0].uid;
+    loadUser(meta.currentUid);
   }
   saveMeta();
   deleteTarget = null;
@@ -614,6 +623,7 @@ window.addEventListener('resize', function () {
 });
 
 function showPage(page) {
+  localStorage.setItem('activePage', page); // 记录当前激活页面，刷新后保持
   document.getElementById('rolePage').classList.toggle('hidden', page !== 'role');
   document.getElementById('teamPage').classList.toggle('hidden', page !== 'team');
   // 导航激活态：高亮当前页按钮
@@ -1228,6 +1238,7 @@ function handleUrlHashImport() {
 // ================= 初始化 =================
 migrateLegacy();
 loadMeta();
+ensureUser(); // 无用户时自动生成 1 个默认用户
 
 // 读取全局开关
 const savedGlobalShowAttr = localStorage.getItem('globalShowAttr');
@@ -1244,4 +1255,6 @@ document.getElementById('attrToggle').addEventListener('change', function () {
 if (meta.currentUid != null) loadUser(meta.currentUid);
 handleUrlHashImport();
 renderUserList();
-showPage('role');
+// 首屏显示上次激活的页面（默认角色页），并持久化
+const prevPage = localStorage.getItem('activePage');
+showPage(prevPage === 'team' ? 'team' : 'role');
