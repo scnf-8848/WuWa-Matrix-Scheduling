@@ -348,14 +348,21 @@ function addUser(name, activate) {
   return u.uid;
 }
 function addNewUser() {
-  addUser(`用户${meta.seq + 1}`, false);
+  addUser(defaultUserName(), false);
   renderUserList();
+}
+
+// 生成不重名的默认用户名：N = 当前用户数 + 1，若重名则继续 +1
+function defaultUserName() {
+  let n = meta.users.length + 1;
+  while (meta.users.some(u => u.name === `用户${n}`)) n++;
+  return `用户${n}`;
 }
 
 // 无任何用户时自动生成 1 个默认用户（新用户首访 / 删除全部用户后），并设为当前
 function ensureUser() {
   if (meta.users.length > 0) return;
-  addUser('用户1', true);
+  addUser(defaultUserName(), true);
 }
 
 // 编辑名字
@@ -1222,7 +1229,7 @@ function handleUrlHashImport() {
     }
   }
   if (!matched) {
-    const uid = addUser(`用户${meta.seq + 1}`, true); // 新建用户并设为当前
+    const uid = addUser(defaultUserName(), true); // 新建用户并设为当前
     const res = importStateToUser(uid, code);
     if (!res.ok) {
       // 解析失败：保留新增用户，但不写入码内数据，给出提示
