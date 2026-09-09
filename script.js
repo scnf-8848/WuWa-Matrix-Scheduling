@@ -862,6 +862,8 @@ function renderTeamPage() {
 
 /* ===== 方案A：Pointer 拖拽（统一鼠标+触屏）===== */
 const DRAG_THRESHOLD = 8;
+// 角色项被拖拽激活后抑制随后的 click（避免拖回原处松手误触发“添加”）
+let suppressCharacterClick = false;
 
 function handleDrop(targetTeamIndex, targetSlotIndex, type, source) {
   const team = teams[targetTeamIndex];
@@ -902,6 +904,7 @@ const PointerDrag = {
     this.sx = e.clientX; this.sy = e.clientY;
     this.activated = false; this.ghost = null;
     this.sourceEl = e.target.closest('.slot, .team-role-item');
+    suppressCharacterClick = false;
 
     this._moveB = this._move.bind(this);
     this._endB = this._end.bind(this);
@@ -941,6 +944,7 @@ const PointerDrag = {
 
   _activate(x, y) {
     this.activated = true;
+    if (this.type === 'character') suppressCharacterClick = true;
     document.body.classList.add('pointer-dragging');
     if (this.sourceEl) this.sourceEl.classList.add('drag-sourcing');
     this._makeGhost();
@@ -1069,6 +1073,7 @@ function renderTeamRoleList() {
     if (remaining > 0) setupPointerDrag(item, 'character', { name: char.name });
 
     item.addEventListener('click', () => {
+      if (suppressCharacterClick) { suppressCharacterClick = false; return; } // 拖拽激活后的 click 忽略
       const currentRemaining = getRemainingUses(char);
       if (currentRemaining <= 0) return;
       let foundSlot = false;
