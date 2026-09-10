@@ -114,14 +114,32 @@ function saveData() {
   localStorage.setItem('globalShowAttr', showAttr.toString());
 }
 
-// ================= 状态码编解码 =================
+// ================= 状态码编解码（v2 稠密） =================
+// 分享码 = [按 6bit 打包的 base64url 载荷] + [校验和字符]
+//
+// 规范顺序：已实装角色（id <= 1000）按 id 升序。新增角色只会拿更大的 id，
+//           所以老码永远只对应规范顺序的前若干位，新角色自动视为未持有。
+//           编码只写到「最后一个持有角色」为止，其后的角色不占任何比特
+//           —— 因此码里没有「角色数 N」字段，也就没有角色数上限。
+//
+// 载荷结构：从规范顺序第 0 位写到最后一个持有角色，逐位写 4bit 状态值：
+//   0 = 未持有；1..14 = 1 + 链*2 + 专武有无
+//   15(1111) 是 4bit 里的空闲值，用作哨兵：已持有角色勾了「额外疲劳」时，
+//   紧跟它的 4bit 状态再写一个 1111。角色状态永远不可能是 15，
+//   所以解码时「往后看 4bit」即可判定，不会与下一个角色的状态混淆。
+//   （未持有角色进不了队伍，其额外疲劳勾选没有意义，不写进分享码。）
+//   末尾不足 6bit 补 0；解码时多读到的 0 位会被当成「未持有」，无害。
+//
+// 校验和：对载荷字符做质数加权和 mod 64，权重取第 2 个质数起（3,5,7,…），
+//         全为奇质数，因此任意单字符抄错都能检出。
+
 // base64url 字母表（URL 安全，去 '='）
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const B64MAP = {};
 B64.split('').forEach((c, i) => { B64MAP[c] = i; });
 
 // 生成第 n 个质数动态权重，避免角色增多时手工维护权重表
-const __primes = [2];
+const __primes = [2, 3];
 function isPrime(x) {
   if (x < 2) return false;
   if (x % 2 === 0) return x === 2;
@@ -136,114 +154,120 @@ function primeAt(n) {
   }
   return __primes[n - 1];
 }
-
-// 校验和：对整段状态字符串计算，第 i 位权重 = 第 i+1 个质数
+// 权重从 primeAt(2)=3 开始，全奇质数
 function calcChecksum(str) {
   let sum = 0;
   for (let i = 0; i < str.length; i++) {
     const cv = B64MAP[str[i]];
     if (cv === undefined) return null;
-    sum = (sum + cv * primeAt(i + 1)) % 64;
+    sum = (sum + cv * primeAt(i + 2)) % 64;
   }
   return B64[sum];
 }
 
-// 已实装（id<=1000）角色子集
-function implemented() { return characterTemplates.filter(t => t.id <= 1000); }
+// 已实装角色，按 id 升序 = 分享码规范顺序
+function canonicalChars() {
+  return characterTemplates.filter(t => t.id <= 1000).slice().sort((a, b) => a.id - b.id);
+}
 
-// ================= 方案一：武器有无 + bit 打包压缩 =================
-// 单角色状态 4bit(0-14)：0 未持有；≥1 持有，(v-1) = chain*2 + 武器有无
-// 额外疲劳值用空闲值 15(1111) 作哨兵：勾选的角色状态后追加 4bit=1111
-// 不定长需加 1 字符角色数 N 前缀；新增角色天然兼容（老码 N 不含新角即未拥有）
-// 版本号 v1；本地仍保留精确武器 1-5，仅分享码压缩为有无
+const bit4 = v => v.toString(2).padStart(4, '0');
+// 单角色状态值：0 未持有；>=1 持有，(v-1) = chain*2 + 专武有无
+// 链值统一钳到 0-6，避免脏数据写出超过 4bit 的值把整条流顶歪
 function stateToValue(c) {
   if (!c.owned) return 0;
-  return 1 + c.chain * 2 + (c.weapon > 0 ? 1 : 0);
+  const chain = Math.max(0, Math.min(6, c.chain | 0));
+  return 1 + chain * 2 + (c.weapon > 0 ? 1 : 0);
 }
 function valueToState(c, v) {
   if (!v) { c.owned = false; c.chain = 0; c.weapon = 0; return; }
   c.owned = true;
   const t = v - 1;
   c.chain = Math.floor(t / 2);
-  c.weapon = (t % 2 === 1) ? 1 : 0; // 有无：导出无法保留 1-5，仅有无
+  c.weapon = (t % 2 === 1) ? 1 : 0; // 分享码只保留「有无专武」，本地仍存 0-5
 }
 
-// 将任意用户库状态编码为状态码
+// 角色状态 → 比特串（每个位置固定 4bit；勾了额外疲劳的角色再跟一个 1111 哨兵）
+// 额外疲劳只对「已持有」角色有意义（未持有角色进不了队伍），所以只标注已持有角色；
+// 这样也不受「只写到最后一个持有角色」的截断影响（已持有角色的位置必然在范围内）。
+function buildBits(chars, extraSet) {
+  const last = chars.reduce((acc, c, i) => (c.owned ? i + 1 : acc), 0);
+  let bits = '';
+  for (let i = 0; i < last; i++) {
+    bits += bit4(stateToValue(chars[i]));
+    if (chars[i].owned && extraSet.has(chars[i].name)) bits += '1111';
+  }
+  return bits;
+}
+
+// 比特串按 6bit 打包成 base64url 字符（不足补 0；解码时多读到的 0 位会被当成"未持有"，无害）
+function packBits(bits) {
+  const padded = bits + '0'.repeat((6 - bits.length % 6) % 6);
+  let out = '';
+  for (let i = 0; i < padded.length; i += 6) out += B64[parseInt(padded.slice(i, i + 6), 2)];
+  return out;
+}
+
+// 用户数据 → 分享码
 function encodeUserState(uid) {
   const raw = localStorage.getItem(`userData_${uid}`);
   let d = {};
   if (raw) { try { d = JSON.parse(raw); } catch { d = {}; } }
   const charData = d.charData || {};
   const extraSet = new Set(d.extraUseChars || []);
-  const chars = characterTemplates.map(t => {
+  const chars = canonicalChars().map(t => {
     const uc = charData[t.name] || { owned: false, chain: 0, weapon: 0 };
-    return { ...t, ...uc };
+    return { name: t.name, owned: !!uc.owned, chain: uc.chain || 0, weapon: uc.weapon || 0 };
   });
-  const implChars = chars.filter(c => c.id <= 1000);
-  // 拼 4bit 状态 + 额外疲劳哨兵(1111)
-  let bits = '';
-  implChars.forEach(c => {
-    const v = stateToValue(c);
-    bits += String((v >> 3) & 1) + String((v >> 2) & 1) + String((v >> 1) & 1) + String(v & 1);
-    if (extraSet.has(c.name)) bits += '1111';
-  });
-  // 6bit → 1 字符
-  bits += '0'.repeat((6 - (bits.length % 6)) % 6);
-  let content = '';
-  for (let i = 0; i < bits.length; i += 6) content += B64[parseInt(bits.slice(i, i + 6), 2)];
-  const version = 1;
-  const body = B64[version] + B64[implChars.length] + content;
+  const body = packBits(buildBits(chars, extraSet));
   return body + calcChecksum(body);
 }
 
-// 解析状态码 → {ok, version, states:[数值...], extra:Set<下标>} 或 {ok:false, error}
+// 分享码 → {ok, states:[状态值...], extra:[规范序号...]}
 function decodeState(code) {
-  const chars = [...code];
-  if (chars.length < 4) return { ok: false, error: '分享码过短' };
-  if (!(chars[0] in B64MAP)) return { ok: false, error: '无效的分享码' };
-  const version = B64MAP[chars[0]];
-  if (version !== 1) return { ok: false, error: `不支持的分享码版本（${version}）` };
-  if (!(chars[1] in B64MAP)) return { ok: false, error: '无效的分享码' };
-  const count = B64MAP[chars[1]];
-  const body = chars.slice(0, -1).join('');
-  const checksum = chars[chars.length - 1];
-  if (calcChecksum(body) !== checksum) return { ok: false, error: '校验失败：分享码可能已损坏' };
-  // content 字符展开为 bit 流
-  let bits = '';
-  for (let i = 2; i < chars.length - 1; i++) bits += B64MAP[chars[i]].toString(2).padStart(6, '0');
-  let pos = 0;
-  const read4 = () => {
-    if (pos + 4 > bits.length) return null;
-    const v = parseInt(bits.slice(pos, pos + 4), 2); pos += 4; return v;
-  };
-  const peek4 = () => (pos + 4 <= bits.length) ? parseInt(bits.slice(pos, pos + 4), 2) : null;
-  // 按 N 读取状态值，peek 到 1111 即判定前一位为额外疲劳并消费
-  const states = [];
-  const extra = new Set();
-  for (let i = 0; i < count; i++) {
-    const v = read4();
-    if (v === null || v > 14) return { ok: false, error: '分享码数据损坏' };
-    states.push(v);
-    if (peek4() === 15) { read4(); extra.add(i); }
+  if (!code || code.length < 1) return { ok: false, error: '分享码过短' };
+  const body = code.slice(0, -1);
+  if (calcChecksum(body) !== code.slice(-1)) {
+    return { ok: false, error: '校验失败：分享码可能已损坏，或为旧版（v1）分享码' };
   }
-  return { ok: true, version, states, extra };
+  let bits = '';
+  for (let i = 0; i < body.length; i++) {
+    const v = B64MAP[body[i]];
+    if (v === undefined) return { ok: false, error: '无效的分享码' };
+    bits += v.toString(2).padStart(6, '0');
+  }
+  let pos = 0;
+  const read = n => {
+    if (pos + n > bits.length) return null;
+    const v = parseInt(bits.slice(pos, pos + n), 2); pos += n; return v;
+  };
+  const peek = n => (pos + n <= bits.length) ? parseInt(bits.slice(pos, pos + n), 2) : null;
+  const states = [];
+  const extra = [];
+  while (pos < bits.length) {
+    const v = read(4);
+    if (v === null) break;
+    if (v > 14) return { ok: false, error: '分享码数据损坏' };
+    states.push(v);
+    // 紧跟其后的 1111 是「额外疲劳」哨兵（角色状态不可能是 15）
+    if (peek(4) === 15) { read(4); extra.push(states.length - 1); }
+  }
+  return { ok: true, states, extra };
 }
 
-// 把解码结果写入指定用户的角色库（覆盖角色数据，交队伍，写额外疲劳）
+// 把分享码写入指定用户的角色库（覆盖角色数据与额外疲劳，保留队伍）
 function importStateToUser(uid, code) {
   const res = decodeState(code);
   if (!res.ok) return res;
   const chars = characterTemplates.map(t => ({ ...t, owned: false, chain: 0, weapon: 0 }));
-  implemented().forEach((tpl, i) => {
+  const canon = canonicalChars();
+  canon.forEach((tpl, i) => {
     const c = chars.find(x => x.name === tpl.name);
-    valueToState(c, i < res.states.length ? res.states[i] : 0);
+    if (c) valueToState(c, i < res.states.length ? res.states[i] : 0);
   });
   const charData = {};
   chars.forEach(c => { charData[c.name] = { owned: c.owned, chain: c.chain, weapon: c.weapon }; });
-  // 额外疲劳角色（按 implemented 顺序取 res.extra 下标）
-  const implNames = implemented().map(t => t.name);
   const extraUseChars = [];
-  res.extra.forEach(i => { const n = implNames[i]; if (n) extraUseChars.push(n); });
+  res.extra.forEach(i => { if (canon[i]) extraUseChars.push(canon[i].name); });
   let d = {};
   const raw = localStorage.getItem(`userData_${uid}`);
   if (raw) { try { d = JSON.parse(raw); } catch { d = {}; } }
