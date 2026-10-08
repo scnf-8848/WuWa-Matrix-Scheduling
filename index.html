@@ -22,6 +22,7 @@
         <div class="nav-center">
             <button id="roleBtn">1-角色</button>
             <button id="teamBtn">2-配队</button>
+            <button id="bossBtn">3-BOSS</button>
         </div>
         <div class="nav-right">
             <button id="userMgrBtn">用户管理</button>
@@ -55,6 +56,18 @@
                 <!-- 队伍将在这里动态生成 -->
             </div>
             <div class="team-footer">
+            </div>
+        </div>
+    </div>
+    <div id="bossPage" class="page hidden">
+        <div class="left-panel">
+            <div id="bossTeamList" class="boss-team-list"></div>
+        </div>
+        <div class="right-panel">
+            <div id="bossHeaderRow" class="boss-header-row"></div>
+            <div id="bossTracks" class="boss-tracks"></div>
+            <div class="boss-footer">
+                <button id="addRoundBtn" class="add-round-btn">新一轮</button>
             </div>
         </div>
     </div>
