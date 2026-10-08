@@ -1,6 +1,9 @@
 // 图片扩展名回退列表（webp 优先）
 const IMAGE_EXTENSIONS = ['webp', 'png', 'jpg', 'jpeg', 'gif'];
 
+// 5 个 BOSS 的初始名称（游戏内 BOSS 更新时手动修改）
+const BOSS_DEF_NAMES = ['燎照之骑', '封庭械囿', '无冠者', '天傀劫煞', '矩阵奇藏'];
+
 // 根据角色名生成头像路径
 function getAvatar(name) {
   return `character/${name}.webp`;
@@ -25,6 +28,9 @@ let teams = [];
 let sortableInstance = null;
 let showAttr = true;
 let extraUseChars = [];
+// 页面3（BOSS 分配）：{ bossNames:[5个名称], rounds:[[{teamId,x,w}...],...] }
+// x/w 为 0~1 连续比例：x=块左端占轨道宽度的比例，w=块宽度比例（宽度即该队打掉的血量占比）
+let bossPage = defaultBossPage();
 
 // ================= 用户元数据 =================
 // gameUsersMeta: { seq, currentUid, users:[{uid,name}] }
@@ -83,6 +89,20 @@ function migrateLegacy() {
   saveMeta();
 }
 
+// ================= 队伍稳定 id =================
+// 页面3 通过 teamId 引用队伍（而非数组下标），避免页面2 增删/调序后分配错位
+function ensureTeamIds() {
+  let maxId = 0;
+  teams.forEach(t => { if (typeof t.id === 'number' && t.id > maxId) maxId = t.id; });
+  teams.forEach(t => { if (typeof t.id !== 'number') t.id = ++maxId; });
+}
+function nextTeamId() {
+  let maxId = 0;
+  teams.forEach(t => { if (typeof t.id === 'number' && t.id > maxId) maxId = t.id; });
+  return maxId + 1;
+}
+function getTeamById(id) { return teams.find(t => t.id === id); }
+
 // ================= 数据读写 =================
 function loadUser(uid) {
   meta.currentUid = uid;
@@ -97,19 +117,24 @@ function loadUser(uid) {
     });
     teams = d.teams || Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     extraUseChars = d.extraUseChars || [];
+    bossPage = d.bossPage || null;
   } else {
     characters = characterTemplates.map(template => ({
       ...template, avatar: getAvatar(template.name), owned: false, chain: 0, weapon: 0
     }));
     teams = Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     extraUseChars = [];
+    bossPage = null;
   }
+  teams.forEach(t => { if (!Array.isArray(t.slots)) t.slots = [null, null, null]; });
+  ensureTeamIds();
+  bossPage = normalizeBossPage(bossPage); // 过滤掉已失效的队伍引用
 }
 function saveData() {
   if (meta.currentUid == null) return;
   const charData = {};
   characters.forEach(char => { charData[char.name] = { owned: char.owned, chain: char.chain, weapon: char.weapon }; });
-  localStorage.setItem(`userData_${meta.currentUid}`, JSON.stringify({ charData, teams, extraUseChars }));
+  localStorage.setItem(`userData_${meta.currentUid}`, JSON.stringify({ charData, teams, extraUseChars, bossPage }));
   saveMeta();
   localStorage.setItem('globalShowAttr', showAttr.toString());
 }
@@ -463,8 +488,9 @@ async function copyToClipboard(text, btn) {
 
 // ================= 顶部操作 =================
 function rerenderCurrentPage() {
-  if (document.getElementById('teamPage').classList.contains('hidden')) renderRoleList();
-  else renderTeamPage();
+  if (!document.getElementById('teamPage').classList.contains('hidden')) renderTeamPage();
+  else if (!document.getElementById('bossPage').classList.contains('hidden')) renderBossPage();
+  else renderRoleList();
 }
 
 // 清空所有数据（先弹确认窗）
@@ -489,6 +515,7 @@ function confirmClearAll() {
 // 导航
 document.getElementById('roleBtn').addEventListener('click', () => showPage('role'));
 document.getElementById('teamBtn').addEventListener('click', () => showPage('team'));
+document.getElementById('bossBtn').addEventListener('click', () => showPage('boss'));
 document.getElementById('clearBtn').addEventListener('click', clearAllData);
 document.getElementById('userMgrBtn').addEventListener('click', () => {
   renderUserList();
@@ -649,19 +676,22 @@ function updateLayoutScale() {
 }
 
 window.addEventListener('resize', function () {
-  if (document.getElementById('teamPage').classList.contains('hidden')) return;
-  updateLayoutScale();
+  if (!document.getElementById('teamPage').classList.contains('hidden')) { updateLayoutScale(); return; }
+  if (!document.getElementById('bossPage').classList.contains('hidden')) updateBossLayout();
 });
 
 function showPage(page) {
   localStorage.setItem('activePage', page); // 记录当前激活页面，刷新后保持
   document.getElementById('rolePage').classList.toggle('hidden', page !== 'role');
   document.getElementById('teamPage').classList.toggle('hidden', page !== 'team');
+  document.getElementById('bossPage').classList.toggle('hidden', page !== 'boss');
   // 导航激活态：高亮当前页按钮
   document.getElementById('roleBtn').classList.toggle('active', page === 'role');
   document.getElementById('teamBtn').classList.toggle('active', page === 'team');
+  document.getElementById('bossBtn').classList.toggle('active', page === 'boss');
   if (page === 'role') renderRoleList();
   if (page === 'team') renderTeamPage();
+  if (page === 'boss') renderBossPage();
 }
 
 // 空态提示（无当前用户时）
@@ -1212,7 +1242,7 @@ function renderTeams() {
   addTeamBtn.className = 'add-team-btn';
   addTeamBtn.textContent = '添加队伍';
   addTeamBtn.addEventListener('click', () => {
-    teams.push({ slots: [null, null, null] });
+    teams.push({ id: nextTeamId(), slots: [null, null, null] });
     saveData();
     renderTeamPage();
   });
@@ -1240,6 +1270,538 @@ function renderTeams() {
   });
 
   updateLayoutScale();
+}
+
+// ================= 页面3：BOSS 分配（单行自由轨道） =================
+// 数据模型：bossPage = { bossNames:[5], rounds:[ [ {teamId, x, w} ... ], ... ] }
+//   x : 左端位置占轨道宽度比例 0~1（连续值，非列对齐）
+//   w : 宽度占轨道宽度比例（连续值）——宽度即该队伍打掉的血量占比
+//   多个队伍在同一 BOSS 区间内首尾相接、可跨列；跨轮次用“队伍复用（拖两次）”表达
+const BOSS_MIN_W = 0.07;   // 最小宽度（比例），保证头像仍可辨认
+const BOSS_DEF_W = 0.2;    // 从左侧拖入时的默认宽度（约等于一个 BOSS 列）
+const r4 = v => Math.round(v * 10000) / 10000;
+
+// 同轨道内把块排成互不重叠的占用区间（按左端升序合并）
+function bossOccupied(round, excludeIndex) {
+  const blocks = round
+    .filter((p, i) => i !== excludeIndex)
+    .map(p => ({ s: p.x, e: Math.min(1, p.x + p.w) }))
+    .sort((a, b) => a.s - b.s);
+  const occ = [];
+  blocks.forEach(b => {
+    const last = occ[occ.length - 1];
+    if (last && b.s <= last.e + 1e-9) last.e = Math.max(last.e, b.e);
+    else occ.push({ s: b.s, e: b.e });
+  });
+  return occ;
+}
+
+// 求不与同轨道其它块重叠、且离目标位置最近的左端位置；无处可放返回 null
+function bossFreeX(round, x, w, excludeIndex) {
+  const occ = bossOccupied(round, excludeIndex);
+  const gaps = [];
+  let cur = 0;
+  occ.forEach(o => {
+    if (o.s - cur > 1e-9) gaps.push({ s: cur, e: o.s });
+    cur = Math.max(cur, o.e);
+  });
+  if (cur < 1 - 1e-9) gaps.push({ s: cur, e: 1 });
+  let best = null, bestCost = Infinity;
+  gaps.forEach(g => {
+    if (g.e - g.s < w - 1e-9) return;
+    const cand = Math.max(g.s, Math.min(g.e - w, x));
+    const cost = Math.abs(cand - x);
+    if (cost < bestCost) { bestCost = cost; best = cand; }
+  });
+  return best;
+}
+
+// 块左右两侧的可用边界：左邻右缘 / 右邻左缘（无邻居则 0 / 1）
+function bossNeighborBounds(round, index) {
+  const p = round[index];
+  let left = 0, right = 1;
+  round.forEach((o, i) => {
+    if (i === index) return;
+    if (o.x + o.w <= p.x + 1e-9) left = Math.max(left, o.x + o.w);
+    else if (o.x >= p.x - 1e-9) right = Math.min(right, o.x);
+  });
+  return { left, right };
+}
+
+function defaultBossPage() {
+  return { bossNames: BOSS_DEF_NAMES.slice(), rounds: [[]] };
+}
+
+// 规范化：补齐 5 个 BOSS 名、过滤失效队伍引用、钳制 x/w（兼容旧的 col/span 格式）
+function normalizeBossPage(bp) {
+  const def = defaultBossPage();
+  if (!bp) return def;
+  const names = (Array.isArray(bp.bossNames) && bp.bossNames.length === 5)
+    ? bp.bossNames.slice() : def.bossNames.slice();
+  // 旧的占位名（BOSS-1…BOSS-5）迁移为新的默认名
+  names.forEach((n, i) => { if (!n || n === `BOSS-${i + 1}`) names[i] = BOSS_DEF_NAMES[i]; });
+  const validIds = new Set(teams.map(t => t.id));
+  let rounds = (Array.isArray(bp.rounds) && bp.rounds.length) ? bp.rounds : [[]];
+  rounds = rounds.map(r => (Array.isArray(r) ? r : []).filter(p => p && validIds.has(p.teamId))
+    .map(p => {
+      let x, w;
+      if (typeof p.x === 'number' && typeof p.w === 'number') {
+        x = p.x; w = p.w;
+      } else { // 旧格式：col + span → 转成比例
+        const col = Math.max(0, Math.min(4, p.col | 0));
+        const span = Math.max(1, Math.min(5 - col, p.span | 0 || 1));
+        x = col / 5; w = span / 5;
+      }
+      w = Math.max(BOSS_MIN_W, Math.min(1, w));
+      x = Math.max(0, Math.min(1 - w, x));
+      return { teamId: p.teamId, x: r4(x), w: r4(w) };
+    }));
+  if (!rounds.length) rounds = [[]];
+  // 消除重叠：按左端升序依次安置，重叠的推到最近的可放位置（兼容旧版允许重叠的数据）
+  rounds = rounds.map(r => {
+    const out = [];
+    r.slice().sort((a, b) => a.x - b.x).forEach(p => {
+      const x = bossFreeX(out, p.x, p.w, -1);
+      out.push({ teamId: p.teamId, x: r4(x == null ? p.x : x), w: p.w });
+    });
+    return out;
+  });
+  return { bossNames: names, rounds };
+}
+
+// 精简队伍块：3 个头像位（空位留白，整块可拖拽）
+function buildTeamBlock(team) {
+  const block = document.createElement('div');
+
+  const slots = document.createElement('div');
+  slots.className = 'boss-slots';
+  for (let i = 0; i < 3; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'boss-slot';
+    const slot = team.slots[i];
+    if (slot) {
+      const img = document.createElement('img');
+      img.src = getAvatar(slot.name);
+      img.alt = slot.name;
+      img.draggable = false;
+      img.onerror = function () { handleImgError(this); };
+      cell.appendChild(img);
+    }
+    slots.appendChild(cell);
+  }
+  block.appendChild(slots);
+  return block;
+}
+
+function renderBossPage() {
+  const teamList = document.getElementById('bossTeamList');
+  const tracks = document.getElementById('bossTracks');
+  const header = document.getElementById('bossHeaderRow');
+  if (meta.currentUid == null) {
+    header.innerHTML = '';
+    teamList.innerHTML = '';
+    tracks.innerHTML = '';
+    teamList.appendChild(emptyHint());
+    return;
+  }
+  renderBossTeamList();
+  renderBossHeader();
+  renderBossTracks();
+  updateBossLayout();
+}
+
+// 左侧：仅展示非空白队伍（非完整 3 人也保留，空位留白）
+function renderBossTeamList() {
+  const list = document.getElementById('bossTeamList');
+  list.innerHTML = '';
+  const visible = teams.filter(t => t.slots && t.slots.some(s => s && s.name));
+  if (!visible.length) {
+    const h = document.createElement('div');
+    h.className = 'boss-empty-hint';
+    h.textContent = '暂无队伍，请先在“2-配队”中组建队伍';
+    list.appendChild(h);
+    return;
+  }
+  visible.forEach(team => {
+    const block = buildTeamBlock(team);
+    block.classList.add('boss-team');
+    setupBossDrag(block, 'new-team', { teamId: team.id });
+    list.appendChild(block);
+  });
+}
+
+// BOSS 标题栏：5 个固定名称（不可编辑）
+function renderBossHeader() {
+  const row = document.getElementById('bossHeaderRow');
+  row.innerHTML = '';
+  bossPage.bossNames.forEach((name) => {
+    const cell = document.createElement('div');
+    cell.className = 'boss-name';
+    cell.textContent = name;
+    row.appendChild(cell);
+  });
+}
+
+// 轨道：每轮一条，内部按 5 列对齐
+function renderBossTracks() {
+  const tracks = document.getElementById('bossTracks');
+  tracks.innerHTML = '';
+  bossPage.rounds.forEach((round, rIndex) => {
+    const track = document.createElement('div');
+    track.className = 'boss-track';
+    track.dataset.round = rIndex;
+
+    const head = document.createElement('div');
+    head.className = 'track-head';
+    const label = document.createElement('span');
+    label.className = 'track-label';
+    label.textContent = `第${rIndex + 1}轮`;
+    head.appendChild(label);
+    if (rIndex >= 1) { // 第 2 轮起可删除
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'track-del';
+      del.textContent = '✕';
+      del.title = '删除本轮';
+      del.addEventListener('pointerdown', (e) => e.stopPropagation());
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bossPage.rounds.splice(rIndex, 1);
+        saveData();
+        renderBossPage();
+      });
+      head.appendChild(del);
+    }
+    track.appendChild(head);
+
+    const grid = document.createElement('div');
+    grid.className = 'track-grid';
+    round.forEach((p, pIndex) => {
+      const team = getTeamById(p.teamId);
+      if (!team) return;
+      const el = buildTeamBlock(team);
+      el.classList.add('placement');
+      el.style.left = `${p.x * 100}%`;
+      el.style.width = `${p.w * 100}%`;
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'placement-del';
+      del.textContent = '✕';
+      del.title = '移除';
+      del.addEventListener('pointerdown', (e) => e.stopPropagation());
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bossPage.rounds[rIndex].splice(pIndex, 1);
+        saveData();
+        renderBossPage();
+      });
+      el.appendChild(del);
+
+      // 左右边缘拖动 → 连续调整该队占用的血量区间（不越过相邻队伍）
+      const rzL = document.createElement('div');
+      rzL.className = 'placement-resize placement-resize-left';
+      rzL.title = '拖动调整左边界';
+      rzL.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        e.stopPropagation();
+        BossDrag.beginResize(e, rIndex, pIndex, 'left');
+      });
+      el.appendChild(rzL);
+
+      const rzR = document.createElement('div');
+      rzR.className = 'placement-resize placement-resize-right';
+      rzR.title = '拖动调整右边界';
+      rzR.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        e.stopPropagation();
+        BossDrag.beginResize(e, rIndex, pIndex, 'right');
+      });
+      el.appendChild(rzR);
+
+      setupBossDrag(el, 'move', { round: rIndex, index: pIndex });
+      grid.appendChild(el);
+    });
+    track.appendChild(grid);
+    tracks.appendChild(track);
+  });
+}
+
+// 计算头像尺寸与轨道高度
+function updateBossLayout() {
+  const page = document.getElementById('bossPage');
+  if (!page || page.classList.contains('hidden')) return;
+  const grid = document.querySelector('#bossTracks .track-grid');
+  const rightPanel = page.querySelector('.right-panel');
+  const leftPanel = page.querySelector('.left-panel');
+  const gridW = grid ? grid.clientWidth : Math.max(0, rightPanel.clientWidth - 40);
+  const colW = gridW / 5;
+  let slot = (colW - 16) / 3;              // 单块宽度≈一个 BOSS 列时的头像上限
+  slot = Math.max(18, Math.min(52, slot));
+  let teamSlot = (Math.max(0, leftPanel.clientWidth - 40) - 22) / 3;   // 22 = 队伍条内边距 12 + 边框 2 + 头像间隔 8
+  teamSlot = Math.max(22, Math.min(56, teamSlot));
+  document.body.style.setProperty('--boss-slot-size', `${slot}px`);
+  document.body.style.setProperty('--track-h', `${slot + 16}px`);
+  document.body.style.setProperty('--boss-team-slot-size', `${teamSlot}px`);
+}
+
+// 新一轮
+document.getElementById('addRoundBtn').addEventListener('click', () => {
+  if (meta.currentUid == null) return;
+  bossPage.rounds.push([]);
+  saveData();
+  renderBossPage();
+});
+
+// ===== 页面3 拖拽（统一鼠标 + 触屏） =====
+const BossDrag = {
+  pid: null, mode: null, source: null,
+  sx: 0, sy: 0, activated: false, isTouch: false,
+  holdTimer: null, ghost: null, sourceEl: null, resizeSide: null,
+  grabPx: 0, grabPy: 0, ghostW: 0, ghostH: 0, gridW: 1,
+  _moveB: null, _endB: null, _noScrollB: null, _resizeCtx: null,
+
+  beginMove(e, mode, source, isTouch) {
+    this.pid = e.pointerId;
+    this.mode = mode; this.source = source; this.isTouch = isTouch;
+    this.sx = e.clientX; this.sy = e.clientY;
+    this.activated = false; this.ghost = null;
+    this.sourceEl = e.currentTarget;
+    this._bind();
+    if (isTouch) {
+      this.holdTimer = setTimeout(() => {
+        this.holdTimer = null;
+        if (!this.activated) this._activate(this.sx, this.sy);
+      }, 220);
+    }
+  },
+
+  beginResize(e, rIndex, pIndex, side) {
+    this.pid = e.pointerId;
+    this.mode = 'resize';
+    this.isTouch = e.pointerType !== 'mouse';
+    this.activated = true; // 缩放立即生效
+    this.resizeSide = side === 'left' ? 'left' : 'right';
+    this.sourceEl = e.currentTarget.parentElement;
+    this.sourceEl.classList.add('placement-resizing'); // 拖动期间锁定高亮，避免随鼠标进出块而闪烁
+    this._resizeCtx = { rIndex, pIndex };
+    document.body.classList.add('pointer-dragging');
+    this._bind();
+  },
+
+  _bind() {
+    this._moveB = this._move.bind(this);
+    this._endB = this._end.bind(this);
+    this._noScrollB = this._noScroll.bind(this);
+    window.addEventListener('pointermove', this._moveB);
+    window.addEventListener('pointerup', this._endB);
+    window.addEventListener('pointercancel', this._endB);
+    if (this.isTouch) window.addEventListener('touchmove', this._noScrollB, { passive: false });
+  },
+
+  _move(e) {
+    if (e.pointerId !== this.pid) return;
+    if (this.mode === 'resize') { this._doResize(e.clientX); return; }
+    const dx = e.clientX - this.sx, dy = e.clientY - this.sy;
+    if (this.activated) { this._trackGhost(e.clientX, e.clientY); return; }
+    if (this.isTouch) {
+      if (this.holdTimer && Math.hypot(dx, dy) > 10) { clearTimeout(this.holdTimer); this.holdTimer = null; this._cancel(); }
+      return;
+    }
+    if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    this._activate(this.sx + dx, this.sy + dy);
+  },
+
+  _activate(x, y) {
+    this.activated = true;
+    document.body.classList.add('pointer-dragging');
+    if (this.sourceEl) this.sourceEl.classList.add('drag-sourcing');
+    const sr = this.sourceEl.getBoundingClientRect();
+    let gw = sr.width, gh = sr.height, gridW = 0;
+    if (this.mode === 'move') {
+      // 同尺寸幽灵：宽度与源块一致
+      const grid = this.sourceEl.closest('.track-grid');
+      if (grid) gridW = grid.getBoundingClientRect().width;
+    } else {
+      // 从左面板新建：幽灵用落位后的真实尺寸（一个 BOSS 列宽 × 轨道高）
+      const grid = document.querySelector('#bossTracks .track-grid');
+      if (grid) {
+        const gr = grid.getBoundingClientRect();
+        gridW = gr.width;
+        gw = gridW * BOSS_DEF_W;
+        gh = Math.max(0, gr.height - 8);
+      }
+    }
+    // 抓取点相对幽灵左端/顶端的像素距离：幽灵与最终落位都用它，消除瞬移与错位
+    this.ghostW = gw; this.ghostH = gh;
+    this.gridW = gridW || 1;
+    this.grabPx = sr.width ? (this.sx - sr.left) : gw / 2;
+    this.grabPy = sr.height ? (this.sy - sr.top) : gh / 2;
+
+    this.ghost = this.sourceEl.cloneNode(true);
+    this.ghost.classList.remove('drag-sourcing');
+    this.ghost.classList.add('drag-ghost');
+    this.ghost.style.width = `${gw}px`;
+    this.ghost.style.height = `${gh}px`;
+    document.body.appendChild(this.ghost);
+    this._trackGhost(x, y);
+  },
+
+  // 抓取点占轨道宽度的比例（幽灵左端 → 指针）
+  get grabFrac() { return this.grabPx / this.gridW; },
+
+  // 幽灵脱离轨道时跟随指针（保持抓取点不动）
+  _freeGhost(cx, cy) {
+    if (!this.ghost) return;
+    this.ghost.style.left = `${cx - this.grabPx}px`;
+    this.ghost.style.top = `${cy - this.grabPy}px`;
+  },
+
+  // 当前被拖块在目标轨道中的宽度与应排除的下标（同轨道移动时排除自身）
+  _dragInfo(source, targetRound) {
+    if (this.mode === 'new-team') return { w: BOSS_DEF_W, exclude: -1 };
+    const srcRound = bossPage.rounds[source.round];
+    const p = srcRound && srcRound[source.index];
+    if (!p) return null;
+    return { w: p.w, exclude: source.round === targetRound ? source.index : -1 };
+  },
+
+  // 幽灵跟随指针：落在轨道上时吸附到不重叠的最终位置，直观预告松手结果
+  _trackGhost(cx, cy) {
+    if (!this.ghost) return;
+    const el = document.elementFromPoint(cx, cy);
+    const leftPanel = document.querySelector('#bossPage .left-panel');
+    document.querySelectorAll('.track-grid.drag-target, .track-grid.drag-blocked').forEach(g => {
+      g.classList.remove('drag-target'); g.classList.remove('drag-blocked');
+    });
+    if (leftPanel) leftPanel.classList.remove('release-hover');
+
+    const grid = el && el.closest('.track-grid');
+    if (!grid) {
+      this._freeGhost(cx, cy);
+      if (this.mode === 'move' && leftPanel && leftPanel.contains(el)) leftPanel.classList.add('release-hover');
+      return;
+    }
+    const rect = grid.getBoundingClientRect();
+    const roundIdx = parseInt(grid.closest('.boss-track').dataset.round, 10);
+    const round = bossPage.rounds[roundIdx];
+    const info = round ? this._dragInfo(this.source, roundIdx) : null;
+    const x = info ? bossFreeX(round, (cx - rect.left) / rect.width - this.grabFrac, info.w, info.exclude) : null;
+    if (x == null) {
+      grid.classList.add('drag-blocked'); // 放不下：不吸附，仅跟随
+      this._freeGhost(cx, cy);
+    } else {
+      grid.classList.add('drag-target');
+      this.ghost.style.left = `${rect.left + x * rect.width}px`;
+      this.ghost.style.top = `${rect.top + 4}px`;
+    }
+  },
+
+  _drop(clientX, clientY, source) {
+    const el = document.elementFromPoint(clientX, clientY);
+    if (!el) return;
+    const grid = el.closest('.track-grid');
+    const leftPanel = document.querySelector('#bossPage .left-panel');
+
+    if (grid) {
+      const rect = grid.getBoundingClientRect();
+      const roundIdx = parseInt(grid.closest('.boss-track').dataset.round, 10);
+      const round = bossPage.rounds[roundIdx];
+      const info = round ? this._dragInfo(source, roundIdx) : null;
+      if (!info) return;
+      const x = bossFreeX(round, (clientX - rect.left) / rect.width - this.grabFrac, info.w, info.exclude);
+      if (x == null) return; // 无处可放：保持原状
+      if (this.mode === 'new-team') {
+        round.push({ teamId: source.teamId, x: r4(x), w: r4(info.w) });
+      } else {
+        const srcRound = bossPage.rounds[source.round];
+        const p = srcRound && srcRound[source.index];
+        if (!p) return;
+        srcRound.splice(source.index, 1);
+        round.push({ teamId: p.teamId, x: r4(x), w: r4(p.w) });
+      }
+      saveData(); renderBossPage();
+    } else if (this.mode === 'move' && leftPanel && leftPanel.contains(el)) {
+      // 拖回左面板（整块面板都是释放区）= 移除该分配
+      const srcRound = bossPage.rounds[source.round];
+      if (srcRound && srcRound[source.index]) {
+        srcRound.splice(source.index, 1);
+        saveData(); renderBossPage();
+      }
+    }
+  },
+
+  _doResize(clientX) {
+    const ctx = this._resizeCtx;
+    if (!ctx) return;
+    const round = bossPage.rounds[ctx.rIndex];
+    const p = round && round[ctx.pIndex];
+    if (!p) return;
+    const grid = this.sourceEl.closest('.track-grid');
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    if (!rect.width) return;
+    const frac = (clientX - rect.left) / rect.width;
+    const bound = bossNeighborBounds(round, ctx.pIndex);
+    if (this.resizeSide === 'left') {
+      // 右缘不动，左缘跟随指针；不越过左邻右缘、不低于最小宽度
+      const rightEdge = p.x + p.w;
+      const minX = bound.left;
+      const x = Math.max(minX, Math.min(Math.max(minX, rightEdge - BOSS_MIN_W), frac));
+      p.x = r4(x);
+      p.w = r4(rightEdge - x);
+      this.sourceEl.style.left = `${p.x * 100}%`;
+      this.sourceEl.style.width = `${p.w * 100}%`;
+    } else {
+      // 左缘不动，右缘跟随指针；不越过右邻左缘、不低于最小宽度
+      const hi = Math.min(1, bound.right);
+      const rightEdge = Math.max(p.x + BOSS_MIN_W, Math.min(hi, frac));
+      p.w = r4(rightEdge - p.x);
+      this.sourceEl.style.width = `${p.w * 100}%`;
+    }
+  },
+
+  _noScroll(e) { e.preventDefault(); },
+
+  _end(e) {
+    if (e.pointerId !== this.pid) return;
+    const activated = this.activated;
+    const mode = this.mode;
+    const source = this.source;
+    this._cleanup();
+    if (!activated) return;
+    if (mode === 'resize') { saveData(); return; }
+    this._drop(e.clientX, e.clientY, source);
+  },
+
+  _cancel() { this._cleanup(); },
+
+  _cleanup() {
+    window.removeEventListener('pointermove', this._moveB);
+    window.removeEventListener('pointerup', this._endB);
+    window.removeEventListener('pointercancel', this._endB);
+    if (this.isTouch) window.removeEventListener('touchmove', this._noScrollB, { passive: false });
+    if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; }
+    document.body.classList.remove('pointer-dragging');
+    if (this.sourceEl) {
+      this.sourceEl.classList.remove('drag-sourcing');
+      this.sourceEl.classList.remove('placement-resizing');
+    }
+    if (this.ghost) { this.ghost.remove(); this.ghost = null; }
+    document.querySelectorAll('.track-grid.drag-target, .track-grid.drag-blocked').forEach(g => {
+      g.classList.remove('drag-target'); g.classList.remove('drag-blocked');
+    });
+    const leftPanel = document.querySelector('#bossPage .left-panel');
+    if (leftPanel) leftPanel.classList.remove('release-hover');
+    this.pid = null; this.source = null; this._resizeCtx = null; this.resizeSide = null;
+  }
+};
+
+function setupBossDrag(el, mode, source) {
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    BossDrag.beginMove(e, mode, source, e.pointerType !== 'mouse');
+  });
 }
 
 // ================= URL 带码访问自动导入 =================
@@ -1293,4 +1855,4 @@ handleUrlHashImport();
 renderUserList();
 // 首屏显示上次激活的页面（默认角色页），并持久化
 const prevPage = localStorage.getItem('activePage');
-showPage(prevPage === 'team' ? 'team' : 'role');
+showPage(['role', 'team', 'boss'].includes(prevPage) ? prevPage : 'role');
