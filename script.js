@@ -1328,6 +1328,12 @@ function bossNeighborBounds(round, index) {
   return { left, right };
 }
 
+// 轨道内块与上下边缘的留白（与 styles.css 的 --track-inset 同源，保证幽灵尺寸/位置与落位一致）
+function trackInset(grid) {
+  const v = parseFloat(getComputedStyle(grid).getPropertyValue('--track-inset'));
+  return Number.isFinite(v) ? v : 7;
+}
+
 function defaultBossPage() {
   return { bossNames: BOSS_DEF_NAMES.slice(), rounds: [[]] };
 }
@@ -1629,7 +1635,7 @@ const BossDrag = {
         const gr = grid.getBoundingClientRect();
         gridW = gr.width;
         gw = gridW * BOSS_DEF_W;
-        gh = Math.max(0, gr.height - 8);
+        gh = Math.max(0, gr.height - trackInset(grid) * 2);
       }
     }
     // 抓取点相对幽灵左端/顶端的像素距离：幽灵与最终落位都用它，消除瞬移与错位
@@ -1693,7 +1699,7 @@ const BossDrag = {
     } else {
       grid.classList.add('drag-target');
       this.ghost.style.left = `${rect.left + x * rect.width}px`;
-      this.ghost.style.top = `${rect.top + 4}px`;
+      this.ghost.style.top = `${rect.top + trackInset(grid)}px`;
     }
   },
 
