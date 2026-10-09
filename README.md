@@ -4,5 +4,6 @@ https://wuwamatrix.pages.dev/
 
 https://scnf-8848.github.io/WuWa-Matrix-Scheduling/
 
-![角色界面](./docs/images/角色界面.jpg)
-![编队界面](./docs/images/编队界面.jpg)
+![角色页面](./docs/images/角色页面.jpg)
+![编队页面](./docs/images/编队页面.jpg)
+![战斗页面](./docs/images/战斗页面.jpg)
