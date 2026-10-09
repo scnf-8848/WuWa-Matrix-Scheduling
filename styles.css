@@ -865,6 +865,7 @@ body.pointer-dragging {
 
 /* 轨道画布：position 容器，块按 left/width 百分比绝对定位（连续缩放） */
 .track-grid {
+  --track-inset: 7px; /* 块与轨道上下边缘的留白：露出背景色块 */
   position: relative;
   height: var(--track-h, 64px);
   border-radius: 4px;
@@ -883,8 +884,8 @@ body.pointer-dragging {
 /* 分配块：任意宽度、单行不叠行；left/width 由脚本写百分比 */
 .placement {
   position: absolute;
-  top: 4px;
-  height: calc(var(--track-h, 64px) - 8px);
+  top: var(--track-inset, 7px);
+  height: calc(var(--track-h, 64px) - var(--track-inset, 7px) * 2);
   display: flex;
   align-items: center;
   gap: 4px;
