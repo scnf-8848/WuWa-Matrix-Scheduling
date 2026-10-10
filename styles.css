@@ -344,12 +344,26 @@ input:checked + .toggle-slider:before {
 
 .team-row.dragging { opacity:.8; transform:translateY(-10px); box-shadow:0 4px 8px rgba(0,0,0,.3); }
 .team-header { display: flex; align-items: center; flex-shrink: 0; margin-right: 8px; }
-.team-handle { cursor:move; font-size:calc(20px * var(--row-ui-scale, 1)); color:#fff; flex-shrink:0; margin-right:calc(10px * var(--row-ui-scale, 1)); }
+.team-handle { cursor:move; font-size:calc(20px * var(--row-ui-scale, 1)); color:#fff; flex-shrink:0; margin-right:calc(10px * var(--row-ui-scale, 1)); touch-action:none; }
 .team-label { font-size:calc(14px * var(--row-ui-scale, 1)); font-weight:600; z-index:10; flex-shrink:0; min-width:calc(44px * var(--row-ui-scale, 1)); white-space:nowrap; }
 .team-slots { display:flex; gap:8px; flex:1 1 auto; min-width:0; align-items:center; justify-content:center; flex-wrap: wrap; }
 .slot { flex:0 0 auto; width: var(--slot-size, 50px); height: var(--slot-size, 50px); border:2px dashed #555; box-sizing:border-box; display:flex; align-items:center; justify-content:center; position:relative; background:#333; border-radius:5px; }
 .slot img { max-width:100%; max-height:100%; }
 .slot .attr { position:absolute; bottom:0; right:0; background:rgba(0,0,0,.7); color:#fff; padding:1px 3px; font-size:8px; border-radius:2px; }
+
+/* 页面2 队伍块拖动：幽灵为整行克隆（绿色实线描边来自 .drag-ghost），保持内容左对齐、保留属性标签 */
+.team-row.drag-ghost { justify-content: flex-start; }
+.team-row.drag-ghost .attr { display: block !important; }
+.drag-ghost .delete-team-btn { display: none !important; }
+/* 页面2 队伍块拖动的目标落位：空白块 + 绿色虚线描边
+   作为网格项参与列优先排布，插入后实时把其它队伍挤开（预览调序结果） */
+.team-row-placeholder {
+  box-sizing: border-box;
+  border: 2px dashed #4ade80;
+  border-radius: 5px;
+  background: rgba(74, 222, 128, 0.08);
+  pointer-events: none;
+}
 
 .delete-btn {
   border: none;
@@ -1017,8 +1031,9 @@ body.pointer-dragging {
 .drag-ghost .placement-resize,
 .drag-ghost .track-del { display: none !important; }
 /* 幽灵脱离源位置，随指针的视口固定定位（需覆盖 .placement:absolute / .boss-team:relative） */
+/* 绿色实线描边：需覆盖 .placement / .boss-team 各自更靠后的灰色边框 */
 .placement.drag-ghost,
-.boss-team.drag-ghost { position: fixed; }
+.boss-team.drag-ghost { position: fixed; border: 2px solid #4ade80; }
 /* 页面3 的幽灵是落位块的真实预览，保留属性标签（覆盖 .drag-ghost 的隐藏规则） */
 .placement.drag-ghost .boss-slot .attr { display: block !important; }
 
