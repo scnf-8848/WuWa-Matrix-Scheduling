@@ -1740,7 +1740,13 @@ function updateBossLayout() {
   // 头像位最大边长 = 块内可用高度：
   // 队伍块被拉长时每个头像位随之变宽，头像即可自适应放大（竖屏轨道加高后放大空间更充裕）；
   // 桌面块高 = 轨道高 - 上下留白14；竖屏留白 0。10 = 块内边距8 + 边框2
-  const blockInner = Math.max(18, (portrait ? trackH : trackH - 14) - 10);
+  // 电脑端：禁用放大——头像不超过「队伍块默认宽度（正好 1 个 BOSS 列 = colW）时的满宽尺寸」，
+  // 该尺寸 = 块内宽 colW-10（左右内边距8 + 边框2）减去 2 个 4px 间隔后三等分；仅更小时缩小
+  const defaultWidthSlot = (colW - 18) / 3;
+  const blockInnerH = (portrait ? trackH : trackH - 14) - 10;
+  const blockInner = portrait
+    ? Math.max(18, blockInnerH)
+    : Math.max(18, Math.min(blockInnerH, defaultWidthSlot));
   document.body.style.setProperty('--boss-slot-size', `${blockInner}px`);
   document.body.style.setProperty('--track-h', `${trackH}px`);
   document.body.style.setProperty('--boss-team-slot-size', `${teamSlot}px`);
