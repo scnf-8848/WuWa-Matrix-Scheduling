@@ -1718,7 +1718,7 @@ function updateBossLayout() {
   // 竖屏（移动端半屏）时轨道高度按“3 轮占满轨道区（下半屏）”设计
   // 多数玩家最多打到第 3 轮，故固定按 3 等分；超过 3 轮时轨道区自身滚动
   const portrait = window.matchMedia('(orientation: portrait)').matches;
-  let trackH = slot + 16;             // 桌面：块高 ≈ 单列头像尺寸
+  let trackH = (slot + 16) * 1.5;    // 桌面：块高 ≈ 单列头像尺寸，再放大到 1.5 倍
   if (portrait) {
     const tracksEl = document.getElementById('bossTracks');
     const avail = tracksEl ? tracksEl.clientHeight - 20 : 0; // 20 = .boss-tracks 上下内边距
