@@ -1711,12 +1711,15 @@ function updateBossLayout() {
   const leftPanel = page.querySelector('.left-panel');
   const gridW = grid ? grid.clientWidth : Math.max(0, rightPanel.clientWidth - 40);
   const colW = gridW / 5;
-  let slot = (colW - 16) / 3;              // 单块宽度≈一个 BOSS 列时的头像上限
-  slot = Math.max(18, Math.min(52, slot));
+  // 头像初始尺寸 = 队伍块取默认宽度（正好 1 个 BOSS 列 = colW）时的头像位满宽，再取 90%：
+  // 满宽 = 块内宽 colW-10（左右内边距8 + 边框2）减去 2 个 4px 间隔后三等分
+  const defaultWidthSlot = Math.max(18, (colW - 18) / 3 * 0.9);
   // 竖屏（移动端半屏）时轨道高度按“3 轮占满轨道区（下半屏）”设计
   // 多数玩家最多打到第 3 轮，故固定按 3 等分；超过 3 轮时轨道区自身滚动
   const portrait = window.matchMedia('(orientation: portrait)').matches;
-  let trackH = (slot + 16) * 1.5;    // 桌面：块高 ≈ 单列头像尺寸，再放大到 1.5 倍
+  // 桌面：块高由头像初始尺寸决定——头像位高度 = 初始尺寸（默认宽度下头像位即正方形），
+  // 块高 = 头像位高 + 上下留白14 + 块内边距边框10 = 初始尺寸 + 24
+  let trackH = defaultWidthSlot + 24;
   if (portrait) {
     const tracksEl = document.getElementById('bossTracks');
     const avail = tracksEl ? tracksEl.clientHeight - 20 : 0; // 20 = .boss-tracks 上下内边距
@@ -1735,16 +1738,12 @@ function updateBossLayout() {
   const budgetH = portrait ? window.innerHeight * 0.34 : leftPanel.clientHeight;
   const rowH = (budgetH - 40 - 24) / 4;    // 40 = 面板上下内边距，24 = 3 个 8px 间距
   const teamSlot = Math.max(34, Math.min(widthSlot, rowH - 14));
-  // 头像位最大边长 = 块内可用高度：
-  // 队伍块被拉长时每个头像位随之变宽，头像即可自适应放大（竖屏轨道加高后放大空间更充裕）；
-  // 桌面块高 = 轨道高 - 上下留白14；竖屏留白 0。10 = 块内边距8 + 边框2
-  // 电脑端：禁用放大——头像不超过「队伍块默认宽度（正好 1 个 BOSS 列 = colW）时的满宽尺寸」，
-  // 该尺寸 = 块内宽 colW-10（左右内边距8 + 边框2）减去 2 个 4px 间隔后三等分；仅更小时缩小
-  const defaultWidthSlot = (colW - 18) / 3;
+  // 头像位最大边长 = 块内可用高度；桌面端禁用放大——不超过头像初始尺寸（defaultWidthSlot），仅更小时缩小。
+  // 10 = 块内边距8 + 边框2
   const blockInnerH = (portrait ? trackH : trackH - 14) - 10;
   const blockInner = portrait
     ? Math.max(18, blockInnerH)
-    : Math.max(18, Math.min(blockInnerH, defaultWidthSlot));
+    : Math.min(blockInnerH, defaultWidthSlot);
   document.body.style.setProperty('--boss-slot-size', `${blockInner}px`);
   document.body.style.setProperty('--track-h', `${trackH}px`);
   document.body.style.setProperty('--boss-team-slot-size', `${teamSlot}px`);
