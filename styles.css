@@ -545,12 +545,6 @@ body.pointer-dragging {
   background: rgba(74, 222, 128, 0.25);
   box-shadow: inset 0 0 0 2px #4ade80;
 }
-/* 槽位拖拽悬停在左面板时：提示可释放回角色池 */
-.left-panel.release-hover {
-  outline: 2px dashed #4ade80;
-  outline-offset: -2px;
-  background: rgba(74, 222, 128, 0.12);
-}
 /* 方案A：禁止 img 的原生拖拽，并让头像不拦截指针事件（否则会抢占 pointer 拖拽） */
 .role-item img,
 .team-role-item img,
@@ -808,8 +802,9 @@ body.pointer-dragging {
   border-radius: 6px;
   padding: 6px;
   cursor: grab;
-  /* 块上触屏即直接拖拽（滚动交给左右留白），无需长按延时 */
-  touch-action: none;
+  /* 同 .placement：轻扫=滚动面板，长按才拖拽；这样队伍块本身也成为可滚动区域 */
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
 }
 .boss-team:hover { border-color: #4ade80; }
 
@@ -1009,8 +1004,19 @@ body.pointer-dragging {
 .placement.placement-resizing .placement-del { opacity: 1; }
 .placement.placement-resizing .placement-resize::after { background: #4ade80; }
 
-/* 拖回左面板（移除）提示：整块左面板都是释放区 */
-#bossPage .left-panel.release-hover { outline: 2px dashed #4ade80; outline-offset: -6px; background: rgba(74, 222, 128, .10); }
+/* 拖回左面板（移除/释放）提示：独立顶层遮罩，保证绿色虚线/填充覆盖面板内队伍块与头像之上（页面2、页面3 共用） */
+#releaseHoverOverlay {
+  position: fixed;
+  display: none;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 2px dashed #4ade80;
+  background: rgba(74, 222, 128, .12);
+  z-index: 9998; /* 低于拖拽幽灵(9999)，高于面板内所有内容 */
+}
+#releaseHoverOverlay.show { display: block; }
+/* 拖拽过程中，指针经过队伍块时不触发 hover 高亮描边 */
+body.pointer-dragging .boss-team:hover { border-color: #333; }
 /* 轨道内无处安放时给出提示 */
 .track-grid.drag-blocked { outline: 2px solid #dc2626; outline-offset: -2px; }
 
