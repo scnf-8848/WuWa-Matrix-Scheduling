@@ -1392,6 +1392,14 @@ function buildTeamBlock(team) {
       img.draggable = false;
       img.onerror = function () { handleImgError(this); };
       cell.appendChild(img);
+
+      const char = characters.find(c => c.name === slot.name);
+      if (char && showAttr) {
+        const attr = document.createElement('div');
+        attr.className = 'attr';
+        attr.textContent = `${char.chain}+${char.weapon}`;
+        cell.appendChild(attr);
+      }
     }
     slots.appendChild(cell);
   }
@@ -1457,12 +1465,19 @@ function renderBossTracks() {
     track.className = 'boss-track';
     track.dataset.round = rIndex;
 
-    const head = document.createElement('div');
-    head.className = 'track-head';
+    // 竖排轮次标题：放轨道最左侧，不占用轨道高度
+    const rail = document.createElement('div');
+    rail.className = 'track-rail';
     const label = document.createElement('span');
     label.className = 'track-label';
     label.textContent = `第${rIndex + 1}轮`;
-    head.appendChild(label);
+    rail.appendChild(label);
+    track.appendChild(rail);
+
+    const grid = document.createElement('div');
+    grid.className = 'track-grid';
+    track.appendChild(grid);
+
     if (rIndex >= 1) { // 第 2 轮起可删除
       const del = document.createElement('button');
       del.type = 'button';
@@ -1476,12 +1491,8 @@ function renderBossTracks() {
         saveData();
         renderBossPage();
       });
-      head.appendChild(del);
+      track.appendChild(del);
     }
-    track.appendChild(head);
-
-    const grid = document.createElement('div');
-    grid.className = 'track-grid';
     round.forEach((p, pIndex) => {
       const team = getTeamById(p.teamId);
       if (!team) return;
@@ -1528,7 +1539,6 @@ function renderBossTracks() {
       setupBossDrag(el, 'move', { round: rIndex, index: pIndex });
       grid.appendChild(el);
     });
-    track.appendChild(grid);
     tracks.appendChild(track);
   });
 }
@@ -1544,11 +1554,38 @@ function updateBossLayout() {
   const colW = gridW / 5;
   let slot = (colW - 16) / 3;              // 单块宽度≈一个 BOSS 列时的头像上限
   slot = Math.max(18, Math.min(52, slot));
-  let teamSlot = (Math.max(0, leftPanel.clientWidth - 40) - 22) / 3;   // 22 = 队伍条内边距 12 + 边框 2 + 头像间隔 8
-  teamSlot = Math.max(22, Math.min(56, teamSlot));
-  document.body.style.setProperty('--boss-slot-size', `${slot}px`);
-  document.body.style.setProperty('--track-h', `${slot + 16}px`);
+  // 竖屏（移动端半屏）时轨道高度按“3 轮占满轨道区（下半屏）”设计
+  // 多数玩家最多打到第 3 轮，故固定按 3 等分；超过 3 轮时轨道区自身滚动
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
+  let trackH = slot + 16;             // 桌面：块高 ≈ 单列头像尺寸
+  if (portrait) {
+    const tracksEl = document.getElementById('bossTracks');
+    const avail = tracksEl ? tracksEl.clientHeight - 20 : 0; // 20 = .boss-tracks 上下内边距
+    const DESIGN_ROUNDS = 3, TRACK_GAP = 10, TRACK_CHROME = 12; // 10=轨道间距；12=轨道内边距4+6+边框2
+    const each = avail > 0 ? (avail - TRACK_GAP * (DESIGN_ROUNDS - 1)) / DESIGN_ROUNDS - TRACK_CHROME : 0;
+    trackH = Math.max(52, Math.floor(each)); // 下限确保竖排“第n轮”标签（约 41px）不被压缩
+  }
+  // 左面板：队伍条宽度只包住头像区，左右预留触屏滑动区（用于原生滚动，块上直接拖拽）
+  // 22 = 队伍条内边距 12 + 边框 2 + 头像间隔 8；预留 2×56px 滑动区后余量给头像（上限 72）
+  const teamW = Math.max(0, leftPanel.clientWidth - 40);
+  const fitAll = (teamW - 22) / 3;
+  const afterGutter = (teamW - 112 - 22) / 3;
+  const widthSlot = Math.min(fitAll, Math.max(56, Math.min(72, afterGutter)));
+  // 再按左面板可用高度收：按 4 行预算，让半屏（移动端）能多浏览几支队伍；
+  // 竖屏左面板最高 = 34vh（与 CSS #bossPage .left-panel 的 max-height 对应）；桌面端高度充足，不受影响
+  const budgetH = portrait ? window.innerHeight * 0.34 : leftPanel.clientHeight;
+  const rowH = (budgetH - 40 - 24) / 4;    // 40 = 面板上下内边距，24 = 3 个 8px 间距
+  const teamSlot = Math.max(34, Math.min(widthSlot, rowH - 14));
+  // 头像位最大边长 = 块内可用高度：
+  // 队伍块被拉长时每个头像位随之变宽，头像即可自适应放大（竖屏轨道加高后放大空间更充裕）；
+  // 桌面块高 = 轨道高 - 上下留白14；竖屏留白 0。10 = 块内边距8 + 边框2
+  const blockInner = Math.max(18, (portrait ? trackH : trackH - 14) - 10);
+  document.body.style.setProperty('--boss-slot-size', `${blockInner}px`);
+  document.body.style.setProperty('--track-h', `${trackH}px`);
   document.body.style.setProperty('--boss-team-slot-size', `${teamSlot}px`);
+  // 左面板队伍条头像的属性标签字号随头像位缩放
+  const attrSize = v => `${Math.max(6, Math.min(10, v * 0.15))}px`;
+  document.body.style.setProperty('--boss-team-attr-size', attrSize(teamSlot));
 }
 
 // 新一轮
@@ -1574,7 +1611,9 @@ const BossDrag = {
     this.activated = false; this.ghost = null;
     this.sourceEl = e.currentTarget;
     this._bind();
-    if (isTouch) {
+    // 右面板轨道内的块底下的背景是滚动区，需长按延时以区分滚动/拖拽；
+    // 左面板队伍条只占头像宽度、两侧留白供滚动，块上触屏即直接拖拽，无需长按
+    if (isTouch && this.mode === 'move') {
       this.holdTimer = setTimeout(() => {
         this.holdTimer = null;
         if (!this.activated) this._activate(this.sx, this.sy);
@@ -1593,6 +1632,7 @@ const BossDrag = {
     this._resizeCtx = { rIndex, pIndex };
     document.body.classList.add('pointer-dragging');
     this._bind();
+    this._lockScroll(); // 缩放立即生效，需立刻阻止页面滚动
   },
 
   _bind() {
@@ -1602,6 +1642,10 @@ const BossDrag = {
     window.addEventListener('pointermove', this._moveB);
     window.addEventListener('pointerup', this._endB);
     window.addEventListener('pointercancel', this._endB);
+  },
+
+  // 拖拽真正开始时才拦截 touchmove：激活之前不拦截，浏览器才能正常滚动面板
+  _lockScroll() {
     if (this.isTouch) window.addEventListener('touchmove', this._noScrollB, { passive: false });
   },
 
@@ -1610,8 +1654,9 @@ const BossDrag = {
     if (this.mode === 'resize') { this._doResize(e.clientX); return; }
     const dx = e.clientX - this.sx, dy = e.clientY - this.sy;
     if (this.activated) { this._trackGhost(e.clientX, e.clientY); return; }
-    if (this.isTouch) {
-      if (this.holdTimer && Math.hypot(dx, dy) > 10) { clearTimeout(this.holdTimer); this.holdTimer = null; this._cancel(); }
+    if (this.holdTimer) {
+      // 右面板：长按确认前若移动过大，判定为滚动，取消本次拖拽
+      if (Math.hypot(dx, dy) > 10) { clearTimeout(this.holdTimer); this.holdTimer = null; this._cancel(); }
       return;
     }
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
@@ -1620,6 +1665,7 @@ const BossDrag = {
 
   _activate(x, y) {
     this.activated = true;
+    this._lockScroll(); // 长按已确认是拖拽，此后阻止页面滚动
     document.body.classList.add('pointer-dragging');
     if (this.sourceEl) this.sourceEl.classList.add('drag-sourcing');
     const sr = this.sourceEl.getBoundingClientRect();
@@ -1647,6 +1693,11 @@ const BossDrag = {
     this.ghost = this.sourceEl.cloneNode(true);
     this.ghost.classList.remove('drag-sourcing');
     this.ghost.classList.add('drag-ghost');
+    // 从左面板新建时，幽灵按落位后的块样式渲染（头像随块高缩放）；否则会沿用左面板的头像尺寸而撑出块外
+    if (this.mode === 'new-team') {
+      this.ghost.classList.remove('boss-team');
+      this.ghost.classList.add('placement');
+    }
     this.ghost.style.width = `${gw}px`;
     this.ghost.style.height = `${gh}px`;
     document.body.appendChild(this.ghost);
