@@ -1025,14 +1025,13 @@ const PointerDrag = {
 
   _highlightTarget(cx, cy) {
     document.querySelectorAll('.slot.drag-target').forEach(s => s.classList.remove('drag-target'));
-    const panel = document.querySelector('.left-panel.release-hover');
-    if (panel) panel.classList.remove('release-hover');
+    setReleaseHoverOverlay(null, false);
     const el = document.elementFromPoint(cx, cy);
     if (el && el.closest('.slot')) {
       el.closest('.slot').classList.add('drag-target');
     } else if (this.type === 'slot' && el && el.closest('.left-panel')) {
       // 槽位拖到左面板 → 提示可释放回角色池
-      el.closest('.left-panel').classList.add('release-hover');
+      setReleaseHoverOverlay(el.closest('.left-panel'), true);
     }
   },
 
@@ -1079,8 +1078,7 @@ const PointerDrag = {
     if (this.sourceEl) this.sourceEl.classList.remove('drag-sourcing');
     if (this.ghost) { this.ghost.remove(); this.ghost = null; }
     document.querySelectorAll('.slot.drag-target').forEach(s => s.classList.remove('drag-target'));
-    const panel = document.querySelector('.left-panel.release-hover');
-    if (panel) panel.classList.remove('release-hover');
+    setReleaseHoverOverlay(null, false);
     this.pid = null;
   }
 };
@@ -1764,6 +1762,29 @@ document.getElementById('addRoundBtn').addEventListener('click', () => {
 });
 
 // ===== 页面3 拖拽（统一鼠标 + 触屏） =====
+
+// 拖回左面板时的高亮遮罩：用固定定位的独立元素绘制，确保绿色虚线/填充位于面板内队伍块与头像之上。
+// 若直接给 .left-panel 加 background/outline，会被面板内子元素盖住，且滚动后会错位。
+// panel 为 null 表示收起遮罩。
+function setReleaseHoverOverlay(panel, on) {
+  let ov = document.getElementById('releaseHoverOverlay');
+  if (!on || !panel) {
+    if (ov) ov.classList.remove('show');
+    return;
+  }
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'releaseHoverOverlay';
+    document.body.appendChild(ov);
+  }
+  const r = panel.getBoundingClientRect();
+  ov.style.left = `${r.left}px`;
+  ov.style.top = `${r.top}px`;
+  ov.style.width = `${r.width}px`;
+  ov.style.height = `${r.height}px`;
+  ov.classList.add('show');
+}
+
 const BossDrag = {
   pid: null, mode: null, source: null,
   sx: 0, sy: 0, activated: false, isTouch: false,
@@ -1778,9 +1799,9 @@ const BossDrag = {
     this.activated = false; this.ghost = null;
     this.sourceEl = e.currentTarget;
     this._bind();
-    // 右面板轨道内的块底下的背景是滚动区，需长按延时以区分滚动/拖拽；
-    // 左面板队伍条只占头像宽度、两侧留白供滚动，块上触屏即直接拖拽，无需长按
-    if (isTouch && this.mode === 'move') {
+    // 触屏：长按 220ms 未滚动即启用拖拽，用于区分「滑动面板」与「拖动队伍」。
+    // 左、右面板都需要：左面板队伍块两侧留白很窄，直接拖动极易误触，故同样要求长按
+    if (isTouch) {
       this.holdTimer = setTimeout(() => {
         this.holdTimer = null;
         if (!this.activated) this._activate(this.sx, this.sy);
@@ -1822,7 +1843,7 @@ const BossDrag = {
     const dx = e.clientX - this.sx, dy = e.clientY - this.sy;
     if (this.activated) { this._trackGhost(e.clientX, e.clientY); return; }
     if (this.holdTimer) {
-      // 右面板：长按确认前若移动过大，判定为滚动，取消本次拖拽
+      // 长按确认前若移动过大，判定为滑动面板，取消本次拖拽
       if (Math.hypot(dx, dy) > 10) { clearTimeout(this.holdTimer); this.holdTimer = null; this._cancel(); }
       return;
     }
@@ -1898,12 +1919,12 @@ const BossDrag = {
     document.querySelectorAll('.track-grid.drag-target, .track-grid.drag-blocked').forEach(g => {
       g.classList.remove('drag-target'); g.classList.remove('drag-blocked');
     });
-    if (leftPanel) leftPanel.classList.remove('release-hover');
+    if (leftPanel) setReleaseHoverOverlay(null, false);
 
     const grid = el && el.closest('.track-grid');
     if (!grid) {
       this._freeGhost(cx, cy);
-      if (this.mode === 'move' && leftPanel && leftPanel.contains(el)) leftPanel.classList.add('release-hover');
+      if (this.mode === 'move' && leftPanel && leftPanel.contains(el)) setReleaseHoverOverlay(leftPanel, true);
       return;
     }
     const rect = grid.getBoundingClientRect();
@@ -2015,8 +2036,7 @@ const BossDrag = {
     document.querySelectorAll('.track-grid.drag-target, .track-grid.drag-blocked').forEach(g => {
       g.classList.remove('drag-target'); g.classList.remove('drag-blocked');
     });
-    const leftPanel = document.querySelector('#bossPage .left-panel');
-    if (leftPanel) leftPanel.classList.remove('release-hover');
+    setReleaseHoverOverlay(null, false);
     this.pid = null; this.source = null; this._resizeCtx = null; this.resizeSide = null;
   }
 };
