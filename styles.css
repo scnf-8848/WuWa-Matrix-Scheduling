@@ -782,9 +782,10 @@ body.pointer-dragging {
 .boss-team-list { display: flex; flex-direction: column; gap: 8px; }
 .boss-empty-hint { color: #888; font-size: 13px; text-align: center; padding: 24px 0; }
 .boss-team {
-  /* 宽度只包住头像区、整体居中：左右留出的面板背景即触屏滚动区 */
+  /* 宽度恒定 = 3 个头像位（22 = 左右内边距12 + 左右边框2 + 2 个 4px 间隔），
+     这样 1/2/3 人队伍块宽度一致，不会随人数变窄；整体居中，左右留出的面板背景即触屏滚动区 */
   align-self: center;
-  width: fit-content;
+  width: calc(var(--boss-team-slot-size, 48px) * 3 + 22px);
   max-width: 100%;
   display: flex;
   align-items: center;
