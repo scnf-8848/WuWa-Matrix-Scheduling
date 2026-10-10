@@ -25,7 +25,6 @@ function handleImgError(img) {
 let characters = [];
 let currentSelectedRoleIndex = null;
 let teams = [];
-let sortableInstance = null;
 let showAttr = true;
 let extraUseChars = [];
 // 页面3（BOSS 分配）：{ bossNames:[5个名称], rounds:[[{teamId,x,w}...],...] }
@@ -1093,6 +1092,185 @@ function setupPointerDrag(el, type, source) {
   });
 }
 
+/* ===== 页面2：队伍块整行拖动排序（2 列网格、列优先填充）=====
+   自定义实现以精确控制「目标落位」：参考页面3 BossDrag 的指针拖拽写法。
+   关键：落位按网格的「列 × 行」计算，避免把「左列最后一行」错判成「右列第一行」。 */
+const TeamDrag = {
+  pid: null, teamIndex: null, isTouch: false,
+  sx: 0, sy: 0, activated: false, holdTimer: null,
+  ghost: null, sourceEl: null, placeholder: null,
+  grabPx: 0, grabPy: 0, targetIndex: null,
+  _moveB: null, _endB: null, _noScrollB: null,
+
+  begin(e, teamIndex, sourceEl, isTouch) {
+    this.pid = e.pointerId;
+    this.teamIndex = teamIndex;
+    this.sourceEl = sourceEl;
+    this.isTouch = isTouch;
+    this.sx = e.clientX; this.sy = e.clientY;
+    this.activated = false; this.ghost = null; this.placeholder = null;
+    this.targetIndex = teamIndex;
+
+    this._moveB = this._move.bind(this);
+    this._endB = this._end.bind(this);
+    this._noScrollB = this._noScroll.bind(this);
+    window.addEventListener('pointermove', this._moveB);
+    window.addEventListener('pointerup', this._endB);
+    window.addEventListener('pointercancel', this._endB);
+
+    // 触屏：长按 220ms 未滚动即启用拖拽；鼠标：靠位移阈值即时启用
+    if (isTouch) {
+      this.holdTimer = setTimeout(() => {
+        this.holdTimer = null;
+        if (!this.activated) this._activate(this.sx, this.sy);
+      }, 220);
+    }
+  },
+
+  _move(e) {
+    if (e.pointerId !== this.pid) return;
+    const dx = e.clientX - this.sx, dy = e.clientY - this.sy;
+    if (this.activated) {
+      this._positionGhost(e.clientX, e.clientY);
+      this._updatePlaceholder(e.clientX, e.clientY);
+      return;
+    }
+    if (this.isTouch) {
+      if (this.holdTimer && Math.hypot(dx, dy) > 10) {
+        clearTimeout(this.holdTimer); this.holdTimer = null;
+        this._cancel();
+      }
+      return;
+    }
+    if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    this._activate(this.sx + dx, this.sy + dy);
+  },
+
+  _activate(x, y) {
+    if (!this.sourceEl) return;
+    this.activated = true;
+    document.body.classList.add('pointer-dragging');
+    const r = this.sourceEl.getBoundingClientRect();
+    // 抓取点相对幽灵左上角的像素偏移：幽灵与落位一致，避免瞬移
+    this.grabPx = Math.min(Math.max(x - r.left, 0), r.width);
+    this.grabPy = Math.min(Math.max(y - r.top, 0), r.height);
+    this.w = r.width; this.h = r.height;
+
+    // 幽灵：整行克隆（.drag-ghost 提供绿色实线描边）
+    const ghost = this.sourceEl.cloneNode(true);
+    ghost.classList.add('drag-ghost');
+    ghost.style.width = `${r.width}px`;
+    ghost.style.height = `${r.height}px`;
+    document.body.appendChild(ghost);
+    this.ghost = ghost;
+
+    // 源行移出网格流（display:none），其它队伍实时重排
+    this.sourceEl.style.display = 'none';
+
+    // 目标落位：空白块 + 绿色虚线描边；作为网格项插入，自动把其它队伍挤开
+    const ph = document.createElement('div');
+    ph.className = 'team-row-placeholder';
+    document.getElementById('teamSection').appendChild(ph);
+    this.placeholder = ph;
+
+    this._positionGhost(x, y);
+    this._updatePlaceholder(x, y);
+    if (this.isTouch) window.addEventListener('touchmove', this._noScrollB, { passive: false });
+  },
+
+  _positionGhost(cx, cy) {
+    if (!this.ghost) return;
+    this.ghost.style.left = `${cx - this.grabPx}px`;
+    this.ghost.style.top = `${cy - this.grabPy}px`;
+  },
+
+  // 计算目标落位下标：最近列 + 最近行 → 列优先线性下标
+  _computeTarget(cx, cy) {
+    const section = document.getElementById('teamSection');
+    const cs = getComputedStyle(section);
+    const r = section.getBoundingClientRect();
+    const padL = parseFloat(cs.paddingLeft) || 0;
+    const padT = parseFloat(cs.paddingTop) || 0;
+    const colGap = parseFloat(cs.columnGap) || 0;
+    const rowGap = parseFloat(cs.rowGap) || 0;
+    const cols = cs.gridTemplateColumns.split(' ').filter(Boolean).map(parseFloat);
+    const rows = cs.gridTemplateRows.split(' ').filter(Boolean).map(parseFloat);
+    const numCols = Math.max(1, cols.length);
+    const colW = cols[0] || this.w;
+    const perCol = Math.max(1, rows.length);   // 每列行数（由 updateLayoutScale 写入）
+    const rowH = rows[0] || this.h;
+    const n = teams.length;
+
+    // 各列容量：末列可能未填满（列优先填充）
+    const cap = [];
+    for (let c = 0; c < numCols; c++) {
+      cap[c] = (c < numCols - 1) ? perCol : Math.max(0, n - (numCols - 1) * perCol);
+    }
+    // 选择水平方向最近、且仍有容量的列
+    let col = 0, best = Infinity;
+    for (let c = 0; c < numCols; c++) {
+      if (cap[c] <= 0) continue;
+      const centerX = r.left + padL + c * (colW + colGap) + colW / 2;
+      const d = Math.abs(cx - centerX);
+      if (d < best) { best = d; col = c; }
+    }
+    // 行：按行高+行距取最近行，再按该列容量钳制
+    let row = Math.round((cy - (r.top + padT + rowH / 2)) / (rowH + rowGap));
+    row = Math.min(Math.max(row, 0), Math.max(0, cap[col] - 1));
+
+    return Math.min(Math.max(col * perCol + row, 0), n - 1);
+  },
+
+  _updatePlaceholder(cx, cy) {
+    if (!this.placeholder) return;
+    const index = this._computeTarget(cx, cy);
+    this.targetIndex = index;
+    // 插入到当前第 index 个队伍之前 → 网格中占据该单元，其后队伍整体后移
+    const section = document.getElementById('teamSection');
+    const rows = Array.from(section.querySelectorAll('.team-row')).filter(el => el !== this.sourceEl);
+    section.insertBefore(this.placeholder, rows[index] || null);
+  },
+
+  _noScroll(e) { e.preventDefault(); },
+
+  _end(e) {
+    if (e.pointerId !== this.pid) return;
+    const wasActivated = this.activated;
+    const from = this.teamIndex, to = this.targetIndex;
+    this._cleanup();
+    if (!wasActivated) return;
+    if (to != null && from != null && to !== from && from < teams.length && to < teams.length) {
+      const moved = teams[from];
+      teams.splice(from, 1);
+      teams.splice(to, 0, moved);
+      saveData(); renderTeamPage();
+    }
+  },
+
+  _cancel() { this._cleanup(); },
+
+  _cleanup() {
+    window.removeEventListener('pointermove', this._moveB);
+    window.removeEventListener('pointerup', this._endB);
+    window.removeEventListener('pointercancel', this._endB);
+    if (this.isTouch) window.removeEventListener('touchmove', this._noScrollB, { passive: false });
+    if (this.holdTimer) { clearTimeout(this.holdTimer); this.holdTimer = null; }
+    document.body.classList.remove('pointer-dragging');
+    if (this.sourceEl) this.sourceEl.style.display = '';
+    if (this.ghost) { this.ghost.remove(); this.ghost = null; }
+    if (this.placeholder) { this.placeholder.remove(); this.placeholder = null; }
+    this.pid = null; this.teamIndex = null; this.targetIndex = null;
+  }
+};
+
+function setupTeamDrag(handleEl, teamIndex, rowEl) {
+  handleEl.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    TeamDrag.begin(e, teamIndex, rowEl, e.pointerType !== 'mouse');
+  });
+}
+
 function renderTeamRoleList() {
   const list = document.getElementById('teamRoleList');
   list.innerHTML = '';
@@ -1166,6 +1344,7 @@ function renderTeams() {
     const handle = document.createElement('span');
     handle.className = 'team-handle';
     handle.textContent = '☰';
+    setupTeamDrag(handle, teamIndex, row);
 
     const label = document.createElement('span');
     label.className = 'team-label';
@@ -1250,24 +1429,6 @@ function renderTeams() {
   const oldAddBtn = footer.querySelector('.add-team-btn');
   if (oldAddBtn) oldAddBtn.remove();
   footer.insertBefore(addTeamBtn, footer.firstChild);
-
-  // 初始化队伍排序
-  if (sortableInstance) sortableInstance.destroy();
-  sortableInstance = new Sortable(section, {
-    handle: '.team-handle',
-    animation: 150,
-    onEnd(evt) {
-      const oldIndex = evt.oldIndex;
-      const newIndex = evt.newIndex;
-      if (oldIndex !== newIndex && oldIndex < teams.length && newIndex < teams.length) {
-        const temp = teams[oldIndex];
-        teams.splice(oldIndex, 1);
-        teams.splice(newIndex, 0, temp);
-        saveData();
-        renderTeams();
-      }
-    },
-  });
 
   updateLayoutScale();
 }
