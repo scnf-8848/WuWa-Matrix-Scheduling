@@ -1481,12 +1481,136 @@ function bossBlockScore(rIndex, p) {
   return sum;
 }
 
+// 「自动续接占位」：R 轮最右端有队伍 a1，R+1 轮最左端为空、且最左队伍 b 的左缘仍在
+// 第 1 个 BOSS 范围内时，[0, b.x) 这段空隙视为 a1 从上一轮延续下来的输出
+// （可能小到放不下任何队伍块，但在高轮次里分数不小）。
+// 返回 { teamId, w, off }；off 表示用户已把它点成「不生效」。纯派生，不写入 rounds。
+function autoContinuation(roundIdx) {
+  const rounds = (bossPage && bossPage.rounds) || [];
+  if (roundIdx <= 0) return null;
+  const prev = rounds[roundIdx - 1];
+  const round = rounds[roundIdx];
+  if (!prev || !round || !round.length) return null; // R+1 轮还没有队伍 b → 不出现
+  let a1 = null; // 取最靠右的那个贴边块作为续接来源
+  prev.forEach(p => { if (isEdgeRight(p) && (!a1 || p.x + p.w > a1.x + a1.w)) a1 = p; });
+  if (!a1) return null;
+  if (round.some(p => p.teamId === a1.teamId)) return null; // 该队本轮已有实体块
+  const leftmost = round.reduce((m, p) => Math.min(m, p.x), 1);
+  if (leftmost <= 1e-6) return null;                   // b 已贴到最左端：不存在可供续接的间隙
+  if (leftmost > 1 / BOSS_COLS + 1e-9) return null;    // b 的左缘已超出第 1 个 BOSS 范围
+  const off = ((bossPage.autoOff) || []).indexOf(roundIdx) >= 0;
+  return { teamId: a1.teamId, w: leftmost, off };
+}
+
+// 自动续接占位小于此宽度时不绘制（仍照常计分）：细到难以辨识，改由 🔗 链接符号表达其存在
+const AUTO_MIN_RENDER = 0.01;
+
+// 切换某轮自动续接占位的「生效 / 不生效」
+function toggleAutoContinuation(roundIdx) {
+  const offs = (bossPage.autoOff = bossPage.autoOff || []);
+  const i = offs.indexOf(roundIdx);
+  if (i >= 0) offs.splice(i, 1); else offs.push(roundIdx);
+  saveData();
+  renderBossPage();
+}
+
+// 构建「自动续接占位」块：无头像、不可拖动/拉伸/删除，宽度由最左队伍 b 的位置决定。
+// 灰色虚线描边（粗=生效 / 细=不生效），点击切换是否计入分数；过窄时返回 null（不绘制）
+function buildAutoPlaceholder(auto, roundIdx) {
+  if (auto.w < AUTO_MIN_RENDER) return null;
+  const el = document.createElement('div');
+  el.className = 'placement placement-auto';
+  if (auto.off) el.classList.add('placement-auto-off');
+  el.dataset.teamId = auto.teamId;
+  el.dataset.autoRound = roundIdx;
+  el.style.left = '0%';
+  el.style.width = `${auto.w * 100}%`;
+  el.title = auto.off
+    ? '自动续接占位（当前不生效，点击启用）'
+    : '自动续接占位（当前生效，点击停用）';
+
+  const score = document.createElement('div');
+  score.className = 'placement-score';
+  score.textContent = bossTeamScore(auto.teamId);
+  el.appendChild(score);
+
+  el.addEventListener('pointerdown', (e) => e.stopPropagation()); // 不触发轨道拖拽/落位
+  el.addEventListener('click', (e) => { e.stopPropagation(); toggleAutoContinuation(roundIdx); });
+  return el;
+}
+
+// 续接链接 i−1 ↔ i：来源为「实体续接块」或「自动占位块」。返回 { enabled, auto } 或 null。
+// auto=true 表示链接由自动占位块产生（可点击切换启停）；实体续接块恒为 enabled
+function linkIncoming(roundIdx) {
+  const rounds = (bossPage && bossPage.rounds) || [];
+  const round = rounds[roundIdx];
+  if (!round || roundIdx <= 0) return null;
+  const prev = rounds[roundIdx - 1] || [];
+  const contBlock = round.find(p => p.cont);
+  if (contBlock && prev.some(q => q.teamId === contBlock.teamId && isEdgeRight(q))) {
+    return { enabled: true, auto: false };
+  }
+  const auto = autoContinuation(roundIdx);
+  if (auto) return { enabled: !auto.off, auto: true };
+  return null;
+}
+
+// 链接符号 ∝：in = 本轮轮次标签下方（左端）；out = 上一轮右侧（✕ 按钮所在的留白区）
+function buildLinkBadge(roundIdx, kind, link) {
+  const b = document.createElement('span');
+  b.className = `track-link track-link-${kind}` + (link.enabled ? '' : ' track-link-off');
+  b.textContent = '∝';   // 利用 color 着色：生效绿色 / 停用灰色（emoji 无法着色）
+  if (link.auto) {
+    b.classList.add('track-link-clickable');
+    b.title = link.enabled ? '续接：与相邻轮次相连（点击停用）' : '续接：与相邻轮次相连（已停用，点击启用）';
+    b.addEventListener('pointerdown', (e) => e.stopPropagation());
+    b.addEventListener('click', (e) => { e.stopPropagation(); toggleAutoContinuation(roundIdx); });
+  } else {
+    b.title = '续接：与相邻轮次相连';
+  }
+  return b;
+}
+
+// 同步第 roundIdx 轮的链接符号：本轮 rail 下方 + 上一轮右侧各一个
+function syncRoundLinks(roundIdx) {
+  const tracks = document.querySelectorAll('#bossTracks .boss-track');
+  const link = linkIncoming(roundIdx);
+  const cur = tracks[roundIdx];
+  if (cur) {
+    const rail = cur.querySelector('.track-rail');
+    rail.querySelectorAll(':scope > .track-link-in').forEach(n => n.remove());
+    if (link) rail.appendChild(buildLinkBadge(roundIdx, 'in', link));
+  }
+  const prev = tracks[roundIdx - 1];
+  if (prev) {
+    prev.querySelectorAll(':scope > .track-link-out').forEach(n => n.remove());
+    if (link) prev.appendChild(buildLinkBadge(roundIdx, 'out', link));
+  }
+}
+
+// 与 autoContinuation 结果保持一致：重建该轮占位块，并同步相邻的链接符号
+function syncAutoPlaceholder(roundIdx) {
+  const grid = document.querySelectorAll('#bossTracks .track-grid')[roundIdx];
+  if (grid) {
+    grid.querySelectorAll(':scope > .placement-auto').forEach(n => n.remove());
+    const auto = autoContinuation(roundIdx);
+    if (auto) {
+      const el = buildAutoPlaceholder(auto, roundIdx);
+      if (el) grid.appendChild(el);
+    }
+  }
+  syncRoundLinks(roundIdx);
+}
+
 // 同一队伍跨轮次出现 → 各块分数相加；该队伍的所有队伍块显示同一个合计值
 function bossTeamScore(teamId) {
   const rounds = (bossPage && bossPage.rounds) || [];
   let total = 0;
   rounds.forEach((round, rIndex) => {
     round.forEach(p => { if (p.teamId === teamId) total += bossBlockScore(rIndex, p); });
+    // 生效中的自动续接占位同样计入（该队伍本轮可能没有实体块）
+    const auto = autoContinuation(rIndex);
+    if (auto && !auto.off && auto.teamId === teamId) total += bossBlockScore(rIndex, { x: 0, w: auto.w });
   });
   return Math.round(total / SCORE_UNIT) * SCORE_UNIT;
 }
@@ -1499,6 +1623,30 @@ function refreshTeamScore(teamId) {
     const s = el.querySelector('.placement-score');
     if (s) s.textContent = v;
   });
+  refreshTotalScore();
+}
+
+// 刷新与本轮及相邻轮相关的所有队伍的分数（缩放会同时波及左右两轮的续接占位块）
+function refreshScoresAround(roundIdx) {
+  const ids = new Set();
+  for (let i = roundIdx - 1; i <= roundIdx + 1; i++) {
+    const r = (bossPage && bossPage.rounds) ? bossPage.rounds[i] : null;
+    if (r) r.forEach(p => ids.add(p.teamId));
+  }
+  ids.forEach(id => refreshTeamScore(id));
+}
+
+// 战斗总分数：各队伍分数之和。同一队伍跨轮次的续接块在界面上重复显示同一个队伍总分，
+// 因此按队伍去重累加（而非逐个块累加），避免续接块被重复计入。
+function bossTotalScore() {
+  let total = 0;
+  (teams || []).forEach(t => { total += bossTeamScore(t.id); });
+  return total;
+}
+
+function refreshTotalScore() {
+  const el = document.getElementById('totalScore');
+  if (el) el.textContent = `总分数：${bossTotalScore()}`;
 }
 
 // ===== 队伍使用限制 =====
@@ -1618,7 +1766,8 @@ function trackInsetBottom(grid) {
 }
 
 function defaultBossPage() {
-  return { bossNames: BOSS_DEF_NAMES.slice(), rounds: [[]] };
+  // autoOff：被用户点成「不生效」的自动续接占位所在轮次下标集合
+  return { bossNames: BOSS_DEF_NAMES.slice(), rounds: [[]], autoOff: [] };
 }
 
 // 规范化：补齐 5 个 BOSS 名、过滤失效队伍引用、钳制 x/w（兼容旧的 col/span 格式）
@@ -1659,7 +1808,11 @@ function normalizeBossPage(bp) {
     });
     return out;
   });
-  return { bossNames: names, rounds };
+  // 自动续接占位的「不生效」轮次：只保留仍存在的轮次下标
+  const autoOff = Array.isArray(bp.autoOff)
+    ? bp.autoOff.filter(n => Number.isInteger(n) && n > 0 && n < rounds.length)
+    : [];
+  return { bossNames: names, rounds, autoOff };
 }
 
 // 精简队伍块：3 个头像位（空位留白，整块可拖拽）
@@ -1703,12 +1856,14 @@ function renderBossPage() {
     teamList.innerHTML = '';
     tracks.innerHTML = '';
     teamList.appendChild(emptyHint());
+    refreshTotalScore(); // 无用户 → 总分数归零
     return;
   }
   renderBossTeamList();
   renderBossHeader();
   renderBossTracks();
   updateBossLayout();
+  refreshTotalScore();
 }
 
 // 左侧：仅展示非空白队伍（非完整 3 人也保留，空位留白）
@@ -1845,6 +2000,17 @@ function renderBossTracks() {
       if (!cont) setupBossDrag(el, 'move', { round: rIndex, index: pIndex });
       grid.appendChild(el);
     });
+    // 自动续接占位：R 轮贴边队伍的续接输出，补齐 R+1 轮最左端放不下队伍块的空隙
+    const auto = autoContinuation(rIndex);
+    if (auto) {
+      const ph = buildAutoPlaceholder(auto, rIndex);
+      if (ph) grid.appendChild(ph);
+    }
+    // 续接链接符号：本轮标签下方（指向 R−1↔R）+ 上一轮右侧（指向 R↔R+1）
+    const linkIn = linkIncoming(rIndex);
+    if (linkIn) rail.appendChild(buildLinkBadge(rIndex, 'in', linkIn));
+    const linkOut = linkIncoming(rIndex + 1);
+    if (linkOut) track.appendChild(buildLinkBadge(rIndex + 1, 'out', linkOut));
     tracks.appendChild(track);
   });
 }
@@ -2194,6 +2360,7 @@ const BossDrag = {
     if (!rect.width) return;
     const frac = (clientX - rect.left) / rect.width;
     const bound = bossNeighborBounds(round, ctx.pIndex);
+    const wasX = p.x;                     // 左缘变化会影响本轮的自动续接占位宽度
     const wasEdgeRight = isEdgeRight(p); // 拉伸前是否贴住本轮最右端（决定「续接」例外是否成立）
     if (this.resizeSide === 'left') {
       // 右缘不动，左缘跟随指针；不越过左邻右缘、不低于最小宽度
@@ -2211,10 +2378,17 @@ const BossDrag = {
       p.w = r4(rightEdge - p.x);
       this.sourceEl.style.width = `${p.w * 100}%`;
     }
-    // 缩放过程中实时更新分数（同一队伍的其它轮次队伍块一并刷新）
-    refreshTeamScore(p.teamId);
-    // 「是否贴住最右端」翻转 → 该队「续接」例外成立与否随之改变，需实时刷新左面板可用状态
-    if (isEdgeRight(p) !== wasEdgeRight) renderBossTeamList();
+    // 左缘变化 → 本轮自动续接占位宽度随之改变，实时同步
+    if (p.x !== wasX) syncAutoPlaceholder(ctx.rIndex);
+    // 「是否贴住最右端」翻转 → 该队「续接」例外成立与否随之改变：
+    //   刷新左面板可用状态，并同步下一轮（可能新增/移除）的自动续接占位
+    if (isEdgeRight(p) !== wasEdgeRight) {
+      renderBossTeamList();
+      syncAutoPlaceholder(ctx.rIndex + 1);
+    }
+    // 缩放波及本轮块的列跨度、本轮占位块（属上一轮贴边的 a 队）、下一轮占位块：
+    // 必须逐队刷新，否则占位块的分不会实时并入 a 队（需刷新页面才更新）
+    refreshScoresAround(ctx.rIndex);
   },
 
   _noScroll(e) { e.preventDefault(); },
