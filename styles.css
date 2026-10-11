@@ -771,9 +771,44 @@ body.pointer-dragging {
 .close-x:hover { color: #fff; }
 
 /* ================= 页面3：BOSS 分配（多轮轨道） ================= */
+/* ===== 页面3 尺寸常量：唯一来源 =====
+   下面的数值同时被 CSS 规则与 JS（updateBossLayout）使用。JS 通过 getComputedStyle 读取，
+   不在 JS 中重复硬编码；改这里即可同时影响两侧，避免“改一边忘另一边”导致的静默错位。
+   放在 :root 上：拖拽幽灵挂在 body 下（不在 #bossPage 内），同样需要读到这些值。 */
+:root {
+  --bp-panel-pad: 20px;        /* 左右面板内边距 */
+  --bp-tracks-pad-y: 10px;     /* .boss-tracks 上下内边距 */
+  --bp-track-gap: 10px;        /* 轨道之间的垂直间距 */
+  --bp-track-pad-top: 4px;     /* .boss-track 上/左内边距 */
+  --bp-track-pad-bottom: 6px;  /* .boss-track 下内边距 */
+  --bp-track-border: 1px;      /* .boss-track 边框 */
+  --bp-track-min-h: 52px;      /* 竖屏轨道最小高度（保证竖排轮次标签可读） */
+  --bp-design-rounds: 3;       /* 竖屏按几轮占满轨道区来设计行高 */
+  --bp-block-pad: 4px;         /* .placement 内边距 */
+  --bp-block-border: 1px;      /* .placement 边框 */
+  --bp-slot-gap: 4px;          /* 队伍块内头像位间隔 */
+  --bp-score-h: 15px;          /* 队伍块上方为分数预留的高度 */
+  --bp-score-space: var(--bp-score-h); /* 实际占用：关闭“显示分数”时归零 */
+  --bp-inset-bottom: 7px;      /* 队伍块下边距（竖屏改为 0） */
+  --bp-slot-min: 18px;         /* 头像位最小边长 */
+  --bp-team-pad: 6px;          /* .boss-team 内边距（左面板队伍条） */
+  --bp-team-border: 1px;       /* .boss-team 边框 */
+  --bp-team-min-slot: 34px;    /* 左面板头像位最小边长 */
+  --bp-team-slot-max: 72px;    /* 左面板头像位最大边长 */
+  --bp-team-gutter: 56px;      /* 左面板左右各预留的触屏滑动区宽度 */
+  --bp-list-gap: 8px;          /* .boss-team-list 行间距 */
+  --bp-team-rows: 4;           /* 左面板按几行队伍做高度预算 */
+  --bp-attr-ratio: 0.15;       /* 属性标签字号 = 头像位边长 × 该比例 */
+  --bp-attr-min: 6px;
+  --bp-attr-max: 10px;
+  --bp-left-max-h: 34vh;       /* 竖屏左面板最大高度 */
+}
+/* 关闭“显示分数”时收回为其预留的轨道空间（块高不变） */
+#bossPage.no-score { --bp-score-space: 0px; }
+
 /* 左右面板 2:8 比例（按 border-box 精确 20% / 80%） */
-#bossPage .left-panel { flex: 0 0 20%; min-width: 0; }
-#bossPage .right-panel { flex: 1 1 0; min-width: 0; overflow: hidden; }
+#bossPage .left-panel { flex: 0 0 20%; min-width: 0; padding: var(--bp-panel-pad); }
+#bossPage .right-panel { flex: 1 1 0; min-width: 0; overflow: hidden; padding: var(--bp-panel-pad); }
 
 /* 左面板滚动条：显式显示，明确提示可滚动（页面1/2 仍保持隐藏滚动条） */
 #bossPage .left-panel {
@@ -787,29 +822,32 @@ body.pointer-dragging {
 #bossPage .left-panel::-webkit-scrollbar-thumb:hover { background: #777; }
 
 /* 左侧：精简队伍列表 */
-.boss-team-list { display: flex; flex-direction: column; gap: 8px; }
+.boss-team-list { display: flex; flex-direction: column; gap: var(--bp-list-gap); }
 .boss-empty-hint { color: #888; font-size: 13px; text-align: center; padding: 24px 0; }
 .boss-team {
-  /* 宽度恒定 = 3 个头像位（22 = 左右内边距12 + 左右边框2 + 2 个 4px 间隔），
-     这样 1/2/3 人队伍块宽度一致，不会随人数变窄；整体居中，左右留出的面板背景即触屏滚动区 */
+  /* 宽度恒定 = 3 个头像位 + 队伍条左右内边距/边框/头像间隔（这样 1/2/3 人队伍块宽度一致，
+     不随人数变窄）；整体居中，左右留出的面板背景即触屏滚动区 */
   align-self: center;
-  width: calc(var(--boss-team-slot-size, 48px) * 3 + 22px);
+  width: calc(var(--boss-team-slot-size, 48px) * 3 + var(--bp-team-pad) * 2 + var(--bp-team-border) * 2 + var(--bp-slot-gap) * 2);
   max-width: 100%;
   display: flex;
   align-items: center;
   background: #2a2a2a;
-  border: 1px solid #333;
+  border: var(--bp-team-border) solid #333;
   border-radius: 6px;
-  padding: 6px;
+  padding: var(--bp-team-pad);
   cursor: grab;
   /* 同 .placement：轻扫=滚动面板，长按才拖拽；这样队伍块本身也成为可滚动区域 */
   touch-action: pan-y;
   -webkit-touch-callout: none;
 }
 .boss-team:hover { border-color: #4ade80; }
+/* 已使用（已在右面板出现）且不满足「续接」例外：变暗、禁止拖出 */
+.boss-team.team-disabled,
+.boss-team.team-disabled:hover { opacity: .35; cursor: not-allowed; border-color: #333; }
 
 /* 头像位：宽度随容器伸缩、高度固定，收窄自适应、拉宽不变；整体在队伍条内水平居中 */
-.boss-slots { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; justify-content: center; }
+.boss-slots { display: flex; gap: var(--bp-slot-gap); flex: 1 1 auto; min-width: 0; justify-content: center; }
 .boss-slot {
   position: relative;
   flex: 1 1 0;
@@ -841,11 +879,14 @@ body.pointer-dragging {
   overflow: hidden;
   white-space: nowrap;
 }
-.boss-team .boss-slot .attr { font-size: var(--boss-team-attr-size, 8px); }
+.boss-team .boss-slot .attr { font-size: clamp(var(--bp-attr-min, 6px), calc(var(--boss-team-slot-size, 48px) * var(--bp-attr-ratio, 0.15)), var(--bp-attr-max, 10px)); }
 /* 轨道内属性标签随头像位尺寸缩放（cqw=头像位宽度的 1%），队伍拉长时同步放大 */
 .placement .boss-slot .attr { font-size: clamp(6px, 18cqw, 10px); }
 
 /* 右面板：标题栏 + 轨道区 + 底部按钮 */
+/* 页面3 右面板顶部工具行：右上角放“显示分数”开关 */
+.boss-topbar { flex: 0 0 auto; display: flex; justify-content: flex-end; margin-bottom: 6px; }
+
 .boss-header-row {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -873,8 +914,8 @@ body.pointer-dragging {
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 0;
+  gap: var(--bp-track-gap);
+  padding: var(--bp-tracks-pad-y) 0;
 }
 .boss-tracks::-webkit-scrollbar { width: 8px; }
 .boss-tracks::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
@@ -886,10 +927,10 @@ body.pointer-dragging {
   align-items: stretch;
   gap: 4px;
   background: #1e1e1e;
-  border: 1px solid #333;
+  border: var(--bp-track-border) solid #333;
   border-radius: 6px;
   /* 左侧留出竖排轮次标签位、右侧留出删除按钮位：两者定宽，各轮画布等宽、列对齐；不占高度 */
-  padding: 4px 22px 6px 4px;
+  padding: var(--bp-track-pad-top) 22px var(--bp-track-pad-bottom) var(--bp-track-pad-top);
 }
 /* 竖排轮次标签：贴轨道最左侧，只占用一点轨道宽度 */
 .track-rail { flex: 0 0 14px; display: flex; align-items: center; justify-content: center; }
@@ -925,7 +966,6 @@ body.pointer-dragging {
 
 /* 轨道画布：position 容器，块按 left/width 百分比绝对定位（连续缩放） */
 .track-grid {
-  --track-inset: 7px; /* 块与轨道上下边缘的留白：露出背景色块 */
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
@@ -946,28 +986,31 @@ body.pointer-dragging {
 /* 分配块：任意宽度、单行不叠行；left/width 由脚本写百分比 */
 .placement {
   position: absolute;
-  /* top/bottom 双向定位：桌面留白 7px、竖屏 0，均严丝合缝填满画布 */
-  top: var(--track-inset, 7px);
-  bottom: var(--track-inset, 7px);
+  /* top/bottom 双向定位：下方保持原边距，上方多出的空间用于显示块上方的分数 */
+  top: var(--track-inset-top, 22px);
+  bottom: var(--track-inset-bottom, 7px);
   display: flex;
   align-items: center;
   gap: 4px;
   background: #2a2a2a;
-  border: 1px solid #444;
+  border: var(--bp-block-border) solid #444;
   border-radius: 6px;
-  padding: 4px;
+  padding: var(--bp-block-pad);
   min-width: 0;
   cursor: grab;
   /* 同 .boss-team：轻扫=滚动轨道区，长按才拖拽；缩放把手即刻拦截，不受影响 */
   touch-action: pan-y;
 }
 .placement:hover { border-color: #4ade80; }
+/* 「续接」块（a2/a3…）：钉在本轮最左端，不可整体拖动，只能靠右手柄向右拉伸 */
+.placement.placement-locked { cursor: default; }
 .placement .boss-slots { height: 100%; }
-/* 头像位填满块高，最大边长由脚本按块内可用高度给出：
-   队伍块拉长 → 每个头像位变宽 → 头像自适应放大（变窄则按比例收缩），且不超过行高 */
+/* 头像位填满块高，宽度上限 = 块内可用高度（轨道高 − 上下留白 − 块内边距边框）：
+   有余量时正好正方形（不超过行高），余量不足时按比例收缩。全部由 CSS 推导，
+   不再由脚本注入尺寸；幽灵元素挂在 body 下也能继承 --track-h / --track-inset-* */
 .placement .boss-slot {
   height: 100%;
-  max-width: var(--boss-slot-size, 48px);
+  max-width: max(var(--bp-slot-min, 18px), calc(var(--track-h, 64px) - var(--track-inset-top, 22px) - var(--track-inset-bottom, 7px) - 2 * (var(--bp-block-pad, 4px) + var(--bp-block-border, 1px))));
   container-type: size; /* 供内部属性标签用 cqw 随头像位缩放 */
 }
 /* 移除按钮贴在块内右上角（块可能贴着轨道右缘，外扩会被裁剪） */
@@ -1003,6 +1046,23 @@ body.pointer-dragging {
 .placement.placement-resizing { border-color: #4ade80; }
 .placement.placement-resizing .placement-del { opacity: 1; }
 .placement.placement-resizing .placement-resize::after { background: #4ade80; }
+
+/* 队伍分数：显示在块上方的预留空间内、水平居中（不占用块高） */
+.placement-score {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 2px);
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  color: #4ade80;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.drag-ghost .placement-score { display: none; }
+/* “显示分数”开关关闭时，不显示块上分数 */
+#bossPage.no-score .placement-score { display: none; }
 
 /* 拖回左面板（移除/释放）提示：独立顶层遮罩，保证绿色虚线/填充覆盖面板内队伍块与头像之上（页面2、页面3 共用） */
 #releaseHoverOverlay {
@@ -1043,11 +1103,19 @@ body.pointer-dragging .boss-team:hover { border-color: #333; }
 /* 页面3 的幽灵是落位块的真实预览，保留属性标签（覆盖 .drag-ghost 的隐藏规则） */
 .placement.drag-ghost .boss-slot .attr { display: block !important; }
 
-/* 竖屏（后续再优化）：面板上下堆叠 */
+/* 竖屏：面板上下堆叠 */
 @media screen and (orientation: portrait) {
-  #bossPage .left-panel { flex: none; max-height: 34vh; }
+  #bossPage { --bp-inset-bottom: 0px; }   /* 竖屏不留下边距 */
+  #bossPage .left-panel { flex: none; max-height: var(--bp-left-max-h); }
   #bossPage .right-panel { flex: 1; min-height: 0; }
-  /* 竖屏：轨道内不给队伍块留上下空，块填满轨道高度；
-     轨道高度改由 JS 按“3 轮占满轨道区”写入 --track-h（见 updateBossLayout） */
-  #bossPage .track-grid { --track-inset: 0px; }
+  /* 轨道行高交给 CSS 均分：每轮 = max(最小高度, (轨道区高 − 轮间距×2) ÷ 3)，
+     即“3 轮正好占满轨道区”，超过 3 轮时各行保持该高度、由轨道区自身滚动。
+     JS 不再重复这段除法，只量取实际渲染的行高来定头像尺寸。 */
+  #bossPage .boss-tracks {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: max(var(--bp-track-min-h), calc((100% - var(--bp-track-gap) * (var(--bp-design-rounds) - 1)) / var(--bp-design-rounds)));
+  }
+  /* 画布填满轨道行高（桌面端由 JS 写入的 --track-h 控制，竖屏改由行高决定） */
+  #bossPage .track-grid { height: 100%; }
 }
