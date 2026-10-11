@@ -26,6 +26,7 @@ let characters = [];
 let currentSelectedRoleIndex = null;
 let teams = [];
 let showAttr = true;
+let showScore = true;   // 页面3 右面板：是否在队伍块上方显示分数（全局开关）
 let extraUseChars = [];
 // 页面3（BOSS 分配）：{ bossNames:[5个名称], rounds:[[{teamId,x,w}...],...] }
 // x/w 为 0~1 连续比例：x=块左端占轨道宽度的比例，w=块宽度比例（宽度即该队打掉的血量占比）
@@ -131,6 +132,7 @@ function loadUser(uid) {
 }
 function saveData() {
   if (meta.currentUid == null) return;
+  pruneContinuations(); // 续接链失效的后续块一并清理，保证存盘、内存与界面三者一致
   const charData = {};
   characters.forEach(char => { charData[char.name] = { owned: char.owned, chain: char.chain, weapon: char.weapon }; });
   localStorage.setItem(`userData_${meta.currentUid}`, JSON.stringify({ charData, teams, extraUseChars, bossPage }));
@@ -500,12 +502,17 @@ function confirmClearAll() {
   if (meta.users) meta.users.forEach(u => localStorage.removeItem(`userData_${u.uid}`));
   meta = { seq: 0, currentUid: null, users: [] };
   localStorage.removeItem('globalShowAttr');
+  localStorage.removeItem('globalShowScore');
   ensureUser(); // 清空后自动补 1 个默认用户
   loadUser(meta.currentUid);
   saveMeta();
   showAttr = true;
   const at = document.getElementById('attrToggle');
   if (at) at.checked = true;
+  showScore = true;
+  const st = document.getElementById('scoreToggle');
+  if (st) st.checked = true;
+  applyScoreVisibility();
   renderUserList();
   rerenderCurrentPage();
   hideModal('clearModal');
@@ -1440,6 +1447,114 @@ const BOSS_MIN_W = 0.07;   // 最小宽度（比例），保证头像仍可辨�
 const BOSS_DEF_W = 0.2;    // 从左侧拖入时的默认宽度（约等于一个 BOSS 列）
 const r4 = v => Math.round(v * 10000) / 10000;
 
+// ===== 页面3 计分 =====
+// 每轮 5 个 BOSS 的「满血基础分」。第 5 列「矩阵奇藏」自身基础分就更高（见下表），与击杀奖励无关。
+// 前 3 轮前 4 个 BOSS 数值相同；第 4、5 轮前 4 个 BOSS 差异细微，按其平均值计（约定）。
+// 分数只作大致示意，最终显示按 SCORE_UNIT 取整。
+const BOSS_ROUND_SCORES = [
+  [4680.8, 4680.8, 4680.8, 4680.8, 5667.5],      // R1
+  [9159.9, 9159.9, 9159.9, 9159.9, 13457.7],     // R2
+  [20222.7, 20222.7, 20222.7, 20222.7, 22239.1], // R3
+  [22750.5, 22750.5, 22750.5, 22750.5, 27798.9], // R4（前 4 个取平均）
+  [27806.2, 27806.2, 27806.2, 27806.2, 33358.7], // R5（前 4 个取平均）
+];
+const BOSS_COLS = 5;            // 每条轨道等分为 5 个 BOSS 列
+const SCORE_UNIT = 50;          // 显示取整单位（分数只需大致示意）
+const BOSS5_KILL_BONUS = 1000;  // 击杀「矩阵奇藏」的额外分（每轮 1 个，与自身基础分相互独立）
+
+// 某轮某 BOSS 列的满血分数（超出已知轮次时沿用最后一轮）。
+// 第 5 列「矩阵奇藏」= 自身基础分 + 击杀奖励，两个机制独立；奖励同样沿血条线性平摊到整条血条。
+function bossColScore(rIndex, col) {
+  const row = BOSS_ROUND_SCORES[Math.min(rIndex, BOSS_ROUND_SCORES.length - 1)];
+  return row[col] + (col === BOSS_COLS - 1 ? BOSS5_KILL_BONUS : 0);
+}
+
+// 单个队伍块在某轮的分数 = 覆盖各 BOSS 列的比例 × 该列分数。
+// 分数沿血条线性分布，因此跨列（含跨第 4、5 个 BOSS 的边界）时按重叠比例自然叠加。
+function bossBlockScore(rIndex, p) {
+  const colW = 1 / BOSS_COLS;
+  let sum = 0;
+  for (let c = 0; c < BOSS_COLS; c++) {
+    const ov = Math.min(p.x + p.w, (c + 1) * colW) - Math.max(p.x, c * colW);
+    if (ov > 0) sum += (ov / colW) * bossColScore(rIndex, c);
+  }
+  return sum;
+}
+
+// 同一队伍跨轮次出现 → 各块分数相加；该队伍的所有队伍块显示同一个合计值
+function bossTeamScore(teamId) {
+  const rounds = (bossPage && bossPage.rounds) || [];
+  let total = 0;
+  rounds.forEach((round, rIndex) => {
+    round.forEach(p => { if (p.teamId === teamId) total += bossBlockScore(rIndex, p); });
+  });
+  return Math.round(total / SCORE_UNIT) * SCORE_UNIT;
+}
+
+// 刷新该队伍在全部轮次中所有队伍块的分数显示（缩放、落位后调用）
+function refreshTeamScore(teamId) {
+  const v = bossTeamScore(teamId);
+  document.querySelectorAll('#bossTracks .placement').forEach(el => {
+    if (Number(el.dataset.teamId) !== teamId) return;
+    const s = el.querySelector('.placement-score');
+    if (s) s.textContent = v;
+  });
+}
+
+// ===== 队伍使用限制 =====
+// 每个队伍只能使用 1 次：已在右面板出现过的队伍，左面板中变暗且不可再拖出，直到右面板释放。
+// 唯一例外（「续接」）：该队在第 r 轮紧贴最右端，且第 r+1 轮最左端无队伍
+//   → 允许把该队再放到第 r+1 轮的最左端，表示它从上一轮末尾继续打下一轮。
+const EDGE_TOL = 0.02;   // 判断「紧贴轨道左/右端」的容差（占轨道宽度的比例）
+
+const isEdgeRight = p => p.x + p.w >= 1 - EDGE_TOL;
+
+// 该队伍已出现在哪些轮次
+function teamUsedRounds(teamId) {
+  const out = [];
+  ((bossPage && bossPage.rounds) || []).forEach((round, r) => {
+    if (round.some(p => p.teamId === teamId)) out.push(r);
+  });
+  return out;
+}
+
+// 例外允许落位的轮次下标；无例外返回 -1
+function teamReuseRound(teamId) {
+  const rounds = (bossPage && bossPage.rounds) || [];
+  for (let r = 0; r < rounds.length - 1; r++) {
+    if (!rounds[r].some(p => p.teamId === teamId && isEdgeRight(p))) continue;
+    const next = rounds[r + 1];
+    if (next.some(p => p.teamId === teamId)) continue;   // 该轮已有此队，不重复放置
+    if (next.some(p => p.x <= EDGE_TOL)) continue;       // 该轮最左端已有队伍
+    return r + 1;
+  }
+  return -1;
+}
+
+// 是否为「续接」块（a2/a3…）：经例外拖出时打上的 cont 标记。
+// 这类块被钉在本轮最左端，不可整体拖动，只能靠右侧把手向右拉伸。
+function isContinuationBlock(p) { return !!p.cont; }
+
+// 续接链完整性：续接块必须由上一轮同队「紧贴最右端」的块支撑。
+// 支撑失效（前驱被删除 / 缩短后不再触底 / 前驱自身也已失效）时，级联删除后续续接块。
+// 按轮次升序处理，故前驱被删后，后一轮能立即感知到，形成 a1→a2→a3 的连锁清理。
+function pruneContinuations() {
+  const rounds = (bossPage && bossPage.rounds) || [];
+  let removed = 0;
+  for (let r = 1; r < rounds.length; r++) {
+    const prev = rounds[r - 1];
+    const round = rounds[r];
+    for (let i = round.length - 1; i >= 0; i--) {
+      const p = round[i];
+      if (!p.cont) continue; // 普通块（含自由移动到最左端的块）不参与清理
+      if (prev.some(q => q.teamId === p.teamId && isEdgeRight(q))) continue; // 支撑仍在
+      round.splice(i, 1);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 // 同轨道内把块排成互不重叠的占用区间（按左端升序合并）
 function bossOccupied(round, excludeIndex) {
   const blocks = round
@@ -1455,8 +1570,9 @@ function bossOccupied(round, excludeIndex) {
   return occ;
 }
 
-// 求不与同轨道其它块重叠、且离目标位置最近的左端位置；无处可放返回 null
-function bossFreeX(round, x, w, excludeIndex) {
+// 求不与同轨道其它块重叠、且离目标位置最近的落位；无处可放返回 {x, w} / null。
+// allowShrink=true 时支持“软落位”：间隔宽度 ≥ BOSS_MIN_W 即可放入，不足原宽度 w 时自动收缩到该间隔宽度
+function bossFreeX(round, x, w, excludeIndex, allowShrink) {
   const occ = bossOccupied(round, excludeIndex);
   const gaps = [];
   let cur = 0;
@@ -1467,10 +1583,13 @@ function bossFreeX(round, x, w, excludeIndex) {
   if (cur < 1 - 1e-9) gaps.push({ s: cur, e: 1 });
   let best = null, bestCost = Infinity;
   gaps.forEach(g => {
-    if (g.e - g.s < w - 1e-9) return;
-    const cand = Math.max(g.s, Math.min(g.e - w, x));
+    const gw = g.e - g.s;
+    if (gw < BOSS_MIN_W - 1e-9) return;
+    const w2 = allowShrink ? Math.min(w, gw) : w;   // 间隔不足原宽 → 收缩到间隔宽度
+    if (gw < w2 - 1e-9) return;
+    const cand = Math.max(g.s, Math.min(g.e - w2, x));
     const cost = Math.abs(cand - x);
-    if (cost < bestCost) { bestCost = cost; best = cand; }
+    if (cost < bestCost) { bestCost = cost; best = { x: cand, w: w2 }; }
   });
   return best;
 }
@@ -1487,9 +1606,14 @@ function bossNeighborBounds(round, index) {
   return { left, right };
 }
 
-// 轨道内块与上下边缘的留白（与 styles.css 的 --track-inset 同源，保证幽灵尺寸/位置与落位一致）
-function trackInset(grid) {
-  const v = parseFloat(getComputedStyle(grid).getPropertyValue('--track-inset'));
+// 轨道内块与上下边缘的留白（与 styles.css 的 --track-inset-top/--track-inset-bottom 同源，
+// 保证幽灵尺寸/位置与落位一致）。上方留白额外含“分数显示区”，故大于下方留白。
+function trackInsetTop(grid) {
+  const v = parseFloat(getComputedStyle(grid).getPropertyValue('--track-inset-top'));
+  return Number.isFinite(v) ? v : 22;
+}
+function trackInsetBottom(grid) {
+  const v = parseFloat(getComputedStyle(grid).getPropertyValue('--track-inset-bottom'));
   return Number.isFinite(v) ? v : 7;
 }
 
@@ -1519,15 +1643,19 @@ function normalizeBossPage(bp) {
       }
       w = Math.max(BOSS_MIN_W, Math.min(1, w));
       x = Math.max(0, Math.min(1 - w, x));
-      return { teamId: p.teamId, x: r4(x), w: r4(w) };
+      const rec = { teamId: p.teamId, x: r4(x), w: r4(w) };
+      if (p.cont) rec.cont = true; // 保留「续接块」标记
+      return rec;
     }));
   if (!rounds.length) rounds = [[]];
   // 消除重叠：按左端升序依次安置，重叠的推到最近的可放位置（兼容旧版允许重叠的数据）
   rounds = rounds.map(r => {
     const out = [];
     r.slice().sort((a, b) => a.x - b.x).forEach(p => {
-      const x = bossFreeX(out, p.x, p.w, -1);
-      out.push({ teamId: p.teamId, x: r4(x == null ? p.x : x), w: p.w });
+      const fit = bossFreeX(out, p.x, p.w, -1);
+      const rec = { teamId: p.teamId, x: r4(fit ? fit.x : p.x), w: p.w };
+      if (p.cont) rec.cont = true; // 保留「续接块」标记
+      out.push(rec);
     });
     return out;
   });
@@ -1598,7 +1726,12 @@ function renderBossTeamList() {
   visible.forEach(team => {
     const block = buildTeamBlock(team);
     block.classList.add('boss-team');
-    setupBossDrag(block, 'new-team', { teamId: team.id });
+    // 已使用（右面板已出现）且不满足「续接」例外 → 变暗、不可拖出
+    if (teamUsedRounds(team.id).length && teamReuseRound(team.id) < 0) {
+      block.classList.add('team-disabled');
+    } else {
+      setupBossDrag(block, 'new-team', { teamId: team.id });
+    }
     list.appendChild(block);
   });
 }
@@ -1655,10 +1788,20 @@ function renderBossTracks() {
     round.forEach((p, pIndex) => {
       const team = getTeamById(p.teamId);
       if (!team) return;
+      // 「续接」块（a2/a3…）：钉在本轮最左端，不可整体移动、无左手柄，只能靠右手柄向右拉伸
+      const cont = isContinuationBlock(p);
       const el = buildTeamBlock(team);
       el.classList.add('placement');
+      if (cont) el.classList.add('placement-locked');
+      el.dataset.teamId = p.teamId;
       el.style.left = `${p.x * 100}%`;
       el.style.width = `${p.w * 100}%`;
+
+      // 分数：显示在块上方居中的预留空间内（算法见 bossTeamScore）
+      const score = document.createElement('div');
+      score.className = 'placement-score';
+      score.textContent = bossTeamScore(p.teamId);
+      el.appendChild(score);
 
       const del = document.createElement('button');
       del.type = 'button';
@@ -1675,15 +1818,18 @@ function renderBossTracks() {
       el.appendChild(del);
 
       // 左右边缘拖动 → 连续调整该队占用的血量区间（不越过相邻队伍）
-      const rzL = document.createElement('div');
-      rzL.className = 'placement-resize placement-resize-left';
-      rzL.title = '拖动调整左边界';
-      rzL.addEventListener('pointerdown', (e) => {
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        e.stopPropagation();
-        BossDrag.beginResize(e, rIndex, pIndex, 'left');
-      });
-      el.appendChild(rzL);
+      // 续接块固定在左端，只有右手柄（无左手柄）
+      if (!cont) {
+        const rzL = document.createElement('div');
+        rzL.className = 'placement-resize placement-resize-left';
+        rzL.title = '拖动调整左边界';
+        rzL.addEventListener('pointerdown', (e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return;
+          e.stopPropagation();
+          BossDrag.beginResize(e, rIndex, pIndex, 'left');
+        });
+        el.appendChild(rzL);
+      }
 
       const rzR = document.createElement('div');
       rzR.className = 'placement-resize placement-resize-right';
@@ -1695,61 +1841,105 @@ function renderBossTracks() {
       });
       el.appendChild(rzR);
 
-      setupBossDrag(el, 'move', { round: rIndex, index: pIndex });
+      // 续接块不可整体移动（钉在左端），只能靠右手柄拉伸
+      if (!cont) setupBossDrag(el, 'move', { round: rIndex, index: pIndex });
       grid.appendChild(el);
     });
     tracks.appendChild(track);
   });
 }
 
+// 读取页面3 尺寸常量：styles.css 的 #bossPage 块是唯一来源，JS 只读不写，避免与 CSS 双份维护
+function bossLayoutConst(page) {
+  const cs = getComputedStyle(page);
+  const px = (name, fb) => {
+    const v = parseFloat(cs.getPropertyValue(name));
+    return Number.isFinite(v) ? v : fb;
+  };
+  return {
+    panelPad: px('--bp-panel-pad', 20),
+    tracksPadY: px('--bp-tracks-pad-y', 10),
+    trackGap: px('--bp-track-gap', 10),
+    trackChrome: px('--bp-track-pad-top', 4) + px('--bp-track-pad-bottom', 6) + px('--bp-track-border', 1) * 2,
+    trackMinH: px('--bp-track-min-h', 52),
+    designRounds: px('--bp-design-rounds', 3),
+    blockPad: px('--bp-block-pad', 4),
+    blockBorder: px('--bp-block-border', 1),
+    slotGap: px('--bp-slot-gap', 4),
+    scoreSpace: px('--bp-score-space', 15),   // 关闭“显示分数”时 CSS 侧已归零
+    insetBottom: px('--bp-inset-bottom', 7),  // 竖屏时 CSS 侧已改为 0
+    slotMin: px('--bp-slot-min', 18),
+    teamPad: px('--bp-team-pad', 6),
+    teamBorder: px('--bp-team-border', 1),
+    teamMinSlot: px('--bp-team-min-slot', 34),
+    teamSlotMax: px('--bp-team-slot-max', 72),
+    teamGutter: px('--bp-team-gutter', 56),
+    listGap: px('--bp-list-gap', 8),
+    teamRows: px('--bp-team-rows', 4),
+  };
+}
+
+// 把 CSS 里的 vh 长度（如 --bp-left-max-h: 34vh）换算为像素，避免在 JS 里重复写 0.34
+function vhToPx(raw, fallback) {
+  const m = /^\s*([\d.]+)vh\s*$/.exec(raw || '');
+  return m ? window.innerHeight * parseFloat(m[1]) / 100 : fallback;
+}
+
 // 计算头像尺寸与轨道高度
 function updateBossLayout() {
   const page = document.getElementById('bossPage');
   if (!page || page.classList.contains('hidden')) return;
-  const grid = document.querySelector('#bossTracks .track-grid');
+  const grid = page.querySelector('#bossTracks .track-grid');
   const rightPanel = page.querySelector('.right-panel');
   const leftPanel = page.querySelector('.left-panel');
-  const gridW = grid ? grid.clientWidth : Math.max(0, rightPanel.clientWidth - 40);
-  const colW = gridW / 5;
-  // 头像初始尺寸 = 队伍块取默认宽度（正好 1 个 BOSS 列 = colW）时的头像位满宽，再取 90%：
-  // 满宽 = 块内宽 colW-10（左右内边距8 + 边框2）减去 2 个 4px 间隔后三等分
-  const defaultWidthSlot = Math.max(18, (colW - 18) / 3 * 0.9);
-  // 竖屏（移动端半屏）时轨道高度按“3 轮占满轨道区（下半屏）”设计
-  // 多数玩家最多打到第 3 轮，故固定按 3 等分；超过 3 轮时轨道区自身滚动
+  if (!rightPanel || !leftPanel) return;
+  const C = bossLayoutConst(page);
   const portrait = window.matchMedia('(orientation: portrait)').matches;
-  // 桌面：块高由头像初始尺寸决定——头像位高度 = 初始尺寸（默认宽度下头像位即正方形），
-  // 块高 = 头像位高 + 上下留白14 + 块内边距边框10 = 初始尺寸 + 24
-  let trackH = defaultWidthSlot + 24;
+  // 块的外框（左右内边距 + 边框）与头像位间隔：头像初始尺寸 = 默认宽度下“1 个 BOSS 列宽 ÷ 3”再取 90%
+  const blockFrame = 2 * (C.blockPad + C.blockBorder);
+  const blockFrameWithGap = blockFrame + 2 * C.slotGap;
+  // 上下留白：下方保持原边距（竖屏为 0）；上方额外加分数空间，供块上方的分数数字显示
+  const insetBottom = C.insetBottom;
+  const insetTop = insetBottom + C.scoreSpace;
+  document.body.style.setProperty('--track-inset-top', `${insetTop}px`);
+  document.body.style.setProperty('--track-inset-bottom', `${insetBottom}px`);
+
+  // 轨道高度：桌面端由“每列宽 → 头像初始尺寸”推出；竖屏端行高由 CSS 均分，这里量取实际渲染值
+  const colW = (grid ? grid.clientWidth : Math.max(0, rightPanel.clientWidth - 2 * C.panelPad)) / 5;
+  const defaultWidthSlot = Math.max(C.slotMin, (colW - blockFrameWithGap) / 3 * 0.9);
+  let trackH = defaultWidthSlot + 2 * insetBottom + blockFrame + C.scoreSpace;
   if (portrait) {
-    const tracksEl = document.getElementById('bossTracks');
-    const avail = tracksEl ? tracksEl.clientHeight - 20 : 0; // 20 = .boss-tracks 上下内边距
-    const DESIGN_ROUNDS = 3, TRACK_GAP = 10, TRACK_CHROME = 12; // 10=轨道间距；12=轨道内边距4+6+边框2
-    const each = avail > 0 ? (avail - TRACK_GAP * (DESIGN_ROUNDS - 1)) / DESIGN_ROUNDS - TRACK_CHROME : 0;
-    trackH = Math.max(52, Math.floor(each)); // 下限确保竖排“第n轮”标签（约 41px）不被压缩
+    // 竖屏行高由 styles.css 竖屏媒体查询的 grid-auto-rows 算好并已渲染完成，直接量取，
+    // 不在 JS 里重复 CSS 的除法公式；无轨道（首次进入）时用同口径兜底
+    const measured = grid ? grid.clientHeight : 0;
+    if (measured > 0) {
+      trackH = measured;
+    } else {
+      const tracksEl = document.getElementById('bossTracks');
+      const avail = tracksEl ? tracksEl.clientHeight - 2 * C.tracksPadY : 0;
+      const each = avail > 0
+        ? (avail - C.trackGap * (C.designRounds - 1)) / C.designRounds - C.trackChrome
+        : 0;
+      trackH = Math.max(C.trackMinH, Math.floor(each));
+    }
   }
+
   // 左面板：队伍条宽度只包住头像区，左右预留触屏滑动区（用于原生滚动，块上直接拖拽）
-  // 22 = 队伍条内边距 12 + 边框 2 + 头像间隔 8；预留 2×56px 滑动区后余量给头像（上限 72）
-  const teamW = Math.max(0, leftPanel.clientWidth - 40);
-  const fitAll = (teamW - 22) / 3;
-  const afterGutter = (teamW - 112 - 22) / 3;
-  const widthSlot = Math.min(fitAll, Math.max(56, Math.min(72, afterGutter)));
-  // 再按左面板可用高度收：按 4 行预算，让半屏（移动端）能多浏览几支队伍；
-  // 竖屏左面板最高 = 34vh（与 CSS #bossPage .left-panel 的 max-height 对应）；桌面端高度充足，不受影响
-  const budgetH = portrait ? window.innerHeight * 0.34 : leftPanel.clientHeight;
-  const rowH = (budgetH - 40 - 24) / 4;    // 40 = 面板上下内边距，24 = 3 个 8px 间距
-  const teamSlot = Math.max(34, Math.min(widthSlot, rowH - 14));
-  // 头像位最大边长 = 块内可用高度；桌面端禁用放大——不超过头像初始尺寸（defaultWidthSlot），仅更小时缩小。
-  // 10 = 块内边距8 + 边框2
-  const blockInnerH = (portrait ? trackH : trackH - 14) - 10;
-  const blockInner = portrait
-    ? Math.max(18, blockInnerH)
-    : Math.min(blockInnerH, defaultWidthSlot);
-  document.body.style.setProperty('--boss-slot-size', `${blockInner}px`);
+  const teamW = Math.max(0, leftPanel.clientWidth - 2 * C.panelPad);
+  const teamFrame = 2 * (C.teamPad + C.teamBorder) + 2 * C.slotGap;
+  const fitAll = (teamW - teamFrame) / 3;
+  const afterGutter = (teamW - 2 * C.teamGutter - teamFrame) / 3;
+  const widthSlot = Math.min(fitAll, Math.max(C.teamGutter, Math.min(C.teamSlotMax, afterGutter)));
+  // 再按左面板可用高度收：按 --bp-team-rows 行预算，让半屏（移动端）能多浏览几支队伍
+  const budgetH = portrait
+    ? vhToPx(getComputedStyle(page).getPropertyValue('--bp-left-max-h'), window.innerHeight * 0.34)
+    : leftPanel.clientHeight;
+  const rowH = (budgetH - 2 * C.panelPad - C.listGap * (C.teamRows - 1)) / C.teamRows;
+  const teamSlot = Math.max(C.teamMinSlot, Math.min(widthSlot, rowH - 2 * (C.teamPad + C.teamBorder)));
+  // 头像位尺寸不再由脚本注入：styles.css 的 .placement .boss-slot 直接用
+  // calc(--track-h − 上下留白 − 块内边距边框) 推出宽度上限，避免同一份算术写两遍
   document.body.style.setProperty('--track-h', `${trackH}px`);
   document.body.style.setProperty('--boss-team-slot-size', `${teamSlot}px`);
-  // 左面板队伍条头像的属性标签字号随头像位缩放
-  const attrSize = v => `${Math.max(6, Math.min(10, v * 0.15))}px`;
-  document.body.style.setProperty('--boss-team-attr-size', attrSize(teamSlot));
 }
 
 // 新一轮
@@ -1789,7 +1979,7 @@ const BossDrag = {
   sx: 0, sy: 0, activated: false, isTouch: false,
   holdTimer: null, ghost: null, sourceEl: null, resizeSide: null,
   grabPx: 0, grabPy: 0, ghostW: 0, ghostH: 0, gridW: 1,
-  _moveB: null, _endB: null, _noScrollB: null, _resizeCtx: null,
+  _moveB: null, _endB: null, _noScrollB: null, _resizeCtx: null, reuseRound: -1,
 
   beginMove(e, mode, source, isTouch) {
     this.pid = e.pointerId;
@@ -1797,6 +1987,13 @@ const BossDrag = {
     this.sx = e.clientX; this.sy = e.clientY;
     this.activated = false; this.ghost = null;
     this.sourceEl = e.currentTarget;
+    // 队伍已使用且无「续接」例外 → 不允许拖出（左面板对应块已变暗，此处兜底拦截）
+    this.reuseRound = -1;
+    if (mode === 'new-team' && teamUsedRounds(source.teamId).length) {
+      const rr = teamReuseRound(source.teamId);
+      if (rr < 0) { this.pid = null; this.source = null; this.sourceEl = null; return; }
+      this.reuseRound = rr; // 例外：仅允许落到第 rr 轮的最左端
+    }
     this._bind();
     // 触屏：长按 220ms 未滚动即启用拖拽，用于区分「滑动面板」与「拖动队伍」。
     // 左、右面板都需要：左面板队伍块两侧留白很窄，直接拖动极易误触，故同样要求长按
@@ -1868,7 +2065,7 @@ const BossDrag = {
         const gr = grid.getBoundingClientRect();
         gridW = gr.width;
         gw = gridW * BOSS_DEF_W;
-        gh = Math.max(0, gr.height - trackInset(grid) * 2);
+        gh = Math.max(0, gr.height - trackInsetTop(grid) - trackInsetBottom(grid));
       }
     }
     // 抓取点相对幽灵左端/顶端的像素距离：幽灵与最终落位都用它，消除瞬移与错位
@@ -1901,6 +2098,12 @@ const BossDrag = {
     this.ghost.style.top = `${cy - this.grabPy}px`;
   },
 
+  // 「续接」例外的新队伍：只接受落到例外轮次的轨道最左端，其余位置视为不可放置
+  _reuseOk(roundIdx, fit) {
+    if (this.mode !== 'new-team' || this.reuseRound < 0) return true;
+    return !!fit && roundIdx === this.reuseRound && fit.x <= EDGE_TOL;
+  },
+
   // 当前被拖块在目标轨道中的宽度与应排除的下标（同轨道移动时排除自身）
   _dragInfo(source, targetRound) {
     if (this.mode === 'new-team') return { w: BOSS_DEF_W, exclude: -1 };
@@ -1930,14 +2133,16 @@ const BossDrag = {
     const roundIdx = parseInt(grid.closest('.boss-track').dataset.round, 10);
     const round = bossPage.rounds[roundIdx];
     const info = round ? this._dragInfo(this.source, roundIdx) : null;
-    const x = info ? bossFreeX(round, (cx - rect.left) / rect.width - this.grabFrac, info.w, info.exclude) : null;
-    if (x == null) {
-      grid.classList.add('drag-blocked'); // 放不下：不吸附，仅跟随
+    const fit = info ? bossFreeX(round, (cx - rect.left) / rect.width - this.grabFrac, info.w, info.exclude, true) : null;
+    if (!fit || !this._reuseOk(roundIdx, fit)) {
+      grid.classList.add('drag-blocked'); // 放不下 / 例外落点不符：不吸附，仅跟随
       this._freeGhost(cx, cy);
     } else {
       grid.classList.add('drag-target');
-      this.ghost.style.left = `${rect.left + x * rect.width}px`;
-      this.ghost.style.top = `${rect.top + trackInset(grid)}px`;
+      this.ghost.style.left = `${rect.left + fit.x * rect.width}px`;
+      this.ghost.style.top = `${rect.top + trackInsetTop(grid)}px`;
+      // 落位被收缩进窄间隔时，幽灵同步变窄以预告结果
+      this.ghost.style.width = `${fit.w * rect.width}px`;
     }
   },
 
@@ -1953,16 +2158,18 @@ const BossDrag = {
       const round = bossPage.rounds[roundIdx];
       const info = round ? this._dragInfo(source, roundIdx) : null;
       if (!info) return;
-      const x = bossFreeX(round, (clientX - rect.left) / rect.width - this.grabFrac, info.w, info.exclude);
-      if (x == null) return; // 无处可放：保持原状
+      const fit = bossFreeX(round, (clientX - rect.left) / rect.width - this.grabFrac, info.w, info.exclude, true);
+      if (!fit || !this._reuseOk(roundIdx, fit)) return; // 无处可放 / 例外落点不符：保持原状
       if (this.mode === 'new-team') {
-        round.push({ teamId: source.teamId, x: r4(x), w: r4(info.w) });
+        const rec = { teamId: source.teamId, x: r4(fit.x), w: r4(fit.w) };
+        if (this.reuseRound >= 0) rec.cont = true; // 经例外拖出 → 标记为续接块，供级联清理识别
+        round.push(rec);
       } else {
         const srcRound = bossPage.rounds[source.round];
         const p = srcRound && srcRound[source.index];
         if (!p) return;
         srcRound.splice(source.index, 1);
-        round.push({ teamId: p.teamId, x: r4(x), w: r4(p.w) });
+        round.push({ teamId: p.teamId, x: r4(fit.x), w: r4(fit.w) });
       }
       saveData(); renderBossPage();
     } else if (this.mode === 'move' && leftPanel && leftPanel.contains(el)) {
@@ -1987,6 +2194,7 @@ const BossDrag = {
     if (!rect.width) return;
     const frac = (clientX - rect.left) / rect.width;
     const bound = bossNeighborBounds(round, ctx.pIndex);
+    const wasEdgeRight = isEdgeRight(p); // 拉伸前是否贴住本轮最右端（决定「续接」例外是否成立）
     if (this.resizeSide === 'left') {
       // 右缘不动，左缘跟随指针；不越过左邻右缘、不低于最小宽度
       const rightEdge = p.x + p.w;
@@ -2003,6 +2211,10 @@ const BossDrag = {
       p.w = r4(rightEdge - p.x);
       this.sourceEl.style.width = `${p.w * 100}%`;
     }
+    // 缩放过程中实时更新分数（同一队伍的其它轮次队伍块一并刷新）
+    refreshTeamScore(p.teamId);
+    // 「是否贴住最右端」翻转 → 该队「续接」例外成立与否随之改变，需实时刷新左面板可用状态
+    if (isEdgeRight(p) !== wasEdgeRight) renderBossTeamList();
   },
 
   _noScroll(e) { e.preventDefault(); },
@@ -2014,7 +2226,13 @@ const BossDrag = {
     const source = this.source;
     this._cleanup();
     if (!activated) return;
-    if (mode === 'resize') { saveData(); return; }
+    if (mode === 'resize') {
+      // 缩短后不再贴住本轮最右端 → 后续续接块失去支撑，级联删除并重渲染轨道
+      const removed = pruneContinuations();
+      saveData(); // 内部会再幂等清理一次并落盘
+      if (removed) renderBossPage();
+      return;
+    }
     this._drop(e.clientX, e.clientY, source);
   },
 
@@ -2037,6 +2255,9 @@ const BossDrag = {
     });
     setReleaseHoverOverlay(null, false);
     this.pid = null; this.source = null; this._resizeCtx = null; this.resizeSide = null;
+    // 注意：不要在此重置 reuseRound。_end 会先 _cleanup 再 _drop，
+    // 若提前清空，松手时的 _reuseOk 会把「例外落点」误判为可放置。
+    // 每次 beginMove 开头都会重新置 -1，无残留风险。
   }
 };
 
@@ -2092,6 +2313,24 @@ document.getElementById('attrToggle').addEventListener('change', function () {
   saveData();
   rerenderCurrentPage();
 });
+
+// 页面3“显示分数”开关（全局，跨刷新保留）
+const savedGlobalShowScore = localStorage.getItem('globalShowScore');
+if (savedGlobalShowScore !== null) showScore = savedGlobalShowScore === 'true';
+const scoreToggleEl = document.getElementById('scoreToggle');
+scoreToggleEl.checked = showScore;
+// 应用开关：隐藏分数并收回为其预留的轨道空间（块高不变）
+function applyScoreVisibility() {
+  const page = document.getElementById('bossPage');
+  if (page) page.classList.toggle('no-score', !showScore);
+  updateBossLayout();
+}
+scoreToggleEl.addEventListener('change', function () {
+  showScore = this.checked;
+  localStorage.setItem('globalShowScore', showScore.toString());
+  applyScoreVisibility();
+});
+applyScoreVisibility();
 
 if (meta.currentUid != null) loadUser(meta.currentUid);
 handleUrlHashImport();
