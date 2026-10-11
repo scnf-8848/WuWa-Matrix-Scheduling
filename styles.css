@@ -885,7 +885,9 @@ body.pointer-dragging {
 
 /* 右面板：标题栏 + 轨道区 + 底部按钮 */
 /* 页面3 右面板顶部工具行：右上角放“显示分数”开关 */
-.boss-topbar { flex: 0 0 auto; display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.boss-topbar { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-bottom: 6px; }
+/* 战斗总分数（所有队伍分数之和），位于“显示分数”开关左侧 */
+.total-score { font-size: 13px; color: #4ade80; font-variant-numeric: tabular-nums; }
 
 .boss-header-row {
   display: grid;
@@ -933,7 +935,8 @@ body.pointer-dragging {
   padding: var(--bp-track-pad-top) 22px var(--bp-track-pad-bottom) var(--bp-track-pad-top);
 }
 /* 竖排轮次标签：贴轨道最左侧，只占用一点轨道宽度 */
-.track-rail { flex: 0 0 14px; display: flex; align-items: center; justify-content: center; }
+/* 竖排轮次标签列：标签垂直居中；续接链接符号绝对定位于底部，使其下缘与队伍块下缘齐平 */
+.track-rail { position: relative; flex: 0 0 14px; display: flex; align-items: center; justify-content: center; }
 .track-label {
   writing-mode: vertical-rl;
   text-orientation: upright;
@@ -963,6 +966,30 @@ body.pointer-dragging {
 }
 .track-del { opacity: .5; position: absolute; right: 3px; top: 50%; transform: translateY(-50%); }
 .track-del:hover { opacity: 1; }
+
+/* 续接链接符号 ∝：生效绿色 / 停用灰色（用字符色而非 emoji 自带色）。
+   两端符号的下缘都与「队伍块下缘」齐平：
+     队伍块下缘 = 网格底边 + --track-inset-bottom；rail 与网格同底，故 rail 内用该值；
+     .boss-track 还多出下内边距，故 out 侧再叠加 --bp-track-pad-bottom */
+.track-link { font-size: 12px; line-height: 1; color: #4ade80; pointer-events: none; user-select: none; }
+/* 左端（本轮轮次标签下方）：垂直镜像，使开口朝左（与右端符号朝向相反） */
+.track-link-in {
+  position: absolute;
+  left: 50%;
+  bottom: var(--track-inset-bottom, 7px);
+  transform: translateX(-50%) scaleX(-1);
+}
+/* 右端（上一轮右侧、✕ 按钮所在的留白区） */
+.track-link-out {
+  position: absolute;
+  right: 3px;
+  bottom: calc(var(--bp-track-pad-bottom, 6px) + var(--track-inset-bottom, 7px));
+}
+/* 不生效（占位块被停用）时转为灰色 */
+.track-link-off { color: #5a5a5a; }
+/* 由自动占位块产生的链接可点击切换启停 */
+.track-link-clickable { pointer-events: auto; cursor: pointer; }
+.track-link-clickable:hover { opacity: .7; }
 
 /* 轨道画布：position 容器，块按 left/width 百分比绝对定位（连续缩放） */
 .track-grid {
@@ -1061,8 +1088,33 @@ body.pointer-dragging {
   white-space: nowrap;
 }
 .drag-ghost .placement-score { display: none; }
+
+/* 自动续接占位：无头像的灰色虚线框，补上一轮贴边队伍在本轮最左端的续接输出。
+   不可拖动/拉伸/删除；点击在「生效（粗虚线 2px）」与「不生效（细虚线 1px）」间切换 */
+.placement-auto {
+  background: transparent;
+  border: 2px dashed #999;
+  cursor: pointer;
+  container-type: inline-size; /* 用自身宽度判定是否够宽显示分数 */
+}
+.placement-auto:hover { border-color: #ccc; }
+/* 不生效态：细虚线、更暗的灰，不计分也不显示分数 */
+.placement-auto.placement-auto-off {
+  border-width: 1px;
+  border-color: #5a5a5a;
+}
+.placement-auto .placement-score { display: none; }
+/* 宽度不足（容不下分数文字）时不显示分数 */
+@container (min-width: 48px) {
+  .placement-auto .placement-score { display: block; }
+}
+/* 不生效时不显示分数（置于容器查询之后以覆盖其显示规则） */
+.placement-auto.placement-auto-off .placement-score { display: none; }
+
 /* “显示分数”开关关闭时，不显示块上分数 */
 #bossPage.no-score .placement-score { display: none; }
+/* 开关关闭时总分数一并隐藏，与“不显示分数”保持一致 */
+#bossPage.no-score .total-score { display: none; }
 
 /* 拖回左面板（移除/释放）提示：独立顶层遮罩，保证绿色虚线/填充覆盖面板内队伍块与头像之上（页面2、页面3 共用） */
 #releaseHoverOverlay {
