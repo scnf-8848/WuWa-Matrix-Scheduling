@@ -1033,6 +1033,27 @@ body.pointer-dragging {
 .placement:hover { border-color: #4ade80; }
 /* 「续接」块（a2/a3…）：钉在本轮最左端，不可整体拖动，只能靠右手柄向右拉伸 */
 .placement.placement-locked { cursor: default; }
+/* 「队伍已失效」块：引用的队伍在页面2 已被删除，但排布数据保留（不再被静默清除）。
+   用橙色虚线 + 斜纹 + 文字明确标示，由用户自己决定是否点 ✕ 移除 */
+.placement.placement-orphan {
+  border-style: dashed;
+  border-color: #b45309;
+  background: repeating-linear-gradient(135deg, #2a2a2a, #2a2a2a 6px, #3a2410 6px, #3a2410 12px);
+}
+.placement.placement-orphan:hover { border-color: #f59e0b; }
+.placement-orphan .orphan-tag {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #f59e0b;
+  font-size: 11px;
+  pointer-events: none;
+}
 .placement .boss-slots { height: 100%; }
 /* 头像位填满块高，宽度上限 = 块内可用高度（轨道高 − 上下留白 − 块内边距边框）：
    有余量时正好正方形（不超过行高），余量不足时按比例收缩。全部由 CSS 推导，
