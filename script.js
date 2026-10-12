@@ -601,6 +601,48 @@ document.getElementById('deleteOk').addEventListener('click', () => {
 });
 
 // ================= 布局：网格行数与槽位尺寸 =================
+/* 页面2 队伍排布规则：
+   1. 横屏固定保持两列网格，队伍先填满左列、余数才进右列：每列行数取不压缩、不滚动前提下
+      的容量（TL_NATURAL_ROW 支撑的行数），而不是两列均分。左列靠最左，右列即使空着也保留
+      轨道位置 —— 这样队伍增加、右列开始出现时，已排好的左列不会移动。
+   2. 行高吃满可用高度（上限 TL_MAX_ROW），而不是钉死在自然行高上，避免底部集中留白；
+      行高有富余时把整块网格垂直居中，让留白上下均分。
+   3. 两列并不总是更优：列宽被压窄时头像会变小。故同时试算单列，取可读性更好的方案；
+      两列既没换来更大头像、又在纵向浪费超过 1/4 高度时，改单列。
+   4. 若最好的方案仍低于可读下限 TL_MIN_SLOT，放弃“一屏全显”，改用固定舒适行高并允许纵向滚动。
+   5. 单列时队伍块不拉满整行：宽度收到“刚好不再被宽度限制”的 TL_ROW_MAX_W 并水平居中。 */
+const TL_MIN_SLOT = 28;    // 头像位可读下限
+const TL_MAX_SLOT = 55;    // 头像位上限
+const TL_MAX_ROW = 78;     // 行高上限：避免队伍块被拉得过分空旷
+const TL_SCROLL_ROW = 60;  // 滚动模式行高（与 .team-row 的 min-height 一致）
+const TL_NATURAL_ROW = 70; // 自然行高：低于它即视为“压缩了队伍块”
+const TL_GAP = 10;         // 行距
+const TL_GAP_COLS = 20;    // 列距
+const TL_FIXED_W = 116;    // 每行除头像位外的固定宽度（把手 + 队伍名 + 内边距 + 头像间隔）
+const TL_ROW_MAX_W = TL_FIXED_W + 3 * TL_MAX_SLOT; // 单列队伍块的最大宽度：再宽也换不来更大的头像
+
+// 试算某一列数方案：返回头像位尺寸、行高与内容总高。
+// opts.perCol 可指定每列行数（容量优先排布）；opts.row 可强制行高（滚动兜底）。
+function teamLayoutCandidate(colCount, availH, width, n, opts) {
+  const o = opts || {};
+  const perCol = o.perCol != null ? o.perCol : Math.max(1, Math.ceil(n / colCount));
+  const rowBudget = o.row != null
+    ? o.row
+    : Math.min(TL_MAX_ROW, (availH - (perCol - 1) * TL_GAP) / perCol);
+  const padV = Math.max(10, Math.min(20,
+      (rowBudget - 32) / (TL_NATURAL_ROW - 32) * 10 + 10));
+  const colW = (width - (colCount - 1) * TL_GAP_COLS) / colCount;
+  const slotFromV = rowBudget - padV;
+  const slotFromW = (colW - TL_FIXED_W) / 3;
+  const slot = Math.max(4, Math.min(TL_MAX_SLOT, slotFromV, slotFromW));
+  return {
+    colCount, perCol, padV, slot, rowBudget,
+    // 头像位是被列宽卡住的（而非行高/上限）：此时减列才可能换来更大头像
+    widthLimited: slotFromW < slotFromV && slotFromW < TL_MAX_SLOT,
+    contentH: perCol * rowBudget + (perCol - 1) * TL_GAP
+  };
+}
+
 function updateLayoutScale() {
   const section = document.getElementById('teamSection');
   const cs = getComputedStyle(section);
@@ -611,74 +653,60 @@ function updateLayoutScale() {
   const availH = section.clientHeight - padTop - padBottom;
   const width = section.clientWidth - padLeft - padRight;
   const n = teams.length;
-  const gap = 10;        // 垂直行间距
-  const gapCols = 20;    // 两列间水平间距
-  const maxSlot = 55;    // 槽位尺寸上限
   if (availH <= 0 || width <= 0) {
-    section.style.setProperty('--slot-size', `${maxSlot}px`);
+    section.style.setProperty('--slot-size', `${TL_MAX_SLOT}px`);
     return;
   }
 
-  const naturalRow = 70;   // 队伍较少的自然行高
-  const capPerCol = Math.max(1, Math.floor((availH + gap) / (naturalRow + gap)));
-
   const portrait = window.matchMedia('(orientation: portrait)').matches;
-
-  let colCount;
-  let perCol;
-  let budgetRow;
-  let overflow = false;
+  let best;
+  let scroll = false;
 
   if (portrait) {
-    colCount = 1;
-    perCol = n;
-    budgetRow = 76;
+    // 竖屏：单列、固定行高，超出部分由竖屏媒体查询里的 overflow-y 承载
+    best = teamLayoutCandidate(1, availH, width, n, { row: 76 });
   } else {
-    colCount = 2;
-    if (n <= capPerCol) {
-      perCol = Math.max(1, n);
-      budgetRow = naturalRow;
-    } else if (n <= capPerCol * 2) {
-      perCol = capPerCol;
-      budgetRow = naturalRow;
-    } else {
-      overflow = true;
-      perCol = Math.ceil(n / 2);
-      budgetRow = (availH - (perCol - 1) * gap) / perCol;
+    // 容量优先：不压缩队伍块（行高不低于自然行高）时，一列最多能放几行
+    const capNat = Math.max(1, Math.floor((availH + TL_GAP) / (TL_NATURAL_ROW + TL_GAP)));
+    // 先尽量排满左列，再把余数放进右列；只有两列都装不下才回到均分并压缩
+    const twoPerCol = n <= capNat ? n
+      : (n <= capNat * 2 ? capNat : Math.ceil(n / 2));
+    const two = teamLayoutCandidate(2, availH, width, n, { perCol: twoPerCol });
+    const one = teamLayoutCandidate(1, availH, width, n);
+    best = two;
+    const slack = 1 - two.contentH / availH;   // 两列方案在纵向浪费掉的比例
+    // 改单列的三条理由：单列明显更清晰；两列已小到不可读而单列更大；
+    // 两列被列宽卡住、既没换来更大头像又在纵向浪费超过 1/4 高度。
+    // 注意：队伍数少、右列空着时仍保持两列（左列靠左不动），不因此改单列。
+    if (one.slot > two.slot * 1.15
+        || (two.slot < TL_MIN_SLOT && one.slot > two.slot)
+        || (two.widthLimited && one.slot >= two.slot && slack > 0.25)) {
+      best = one;
+    }
+    if (best.slot < TL_MIN_SLOT) {
+      // 两列也太小：给足舒适行高，超出部分改为滚动
+      scroll = true;
+      best = teamLayoutCandidate(best.colCount, availH, width, n,
+        { row: TL_SCROLL_ROW, perCol: best.perCol });
     }
   }
 
-  const maxPad = 20;
-  const minPad = 10;
-  const padV = Math.max(minPad, Math.min(maxPad,
-      (budgetRow - 32) / (naturalRow - 32) * (maxPad - minPad) + minPad));
+  const uiScale = Math.max(0.78, Math.min(1,
+      0.78 + (best.slot - 22) / (TL_MAX_SLOT - 22) * (1 - 0.78)));
 
-  const slotFromV = budgetRow - padV;
-  const rowPad = 18;
-  const colW = (width - (colCount - 1) * gapCols) / colCount;
-  const slotFromW = (colW - 82 - rowPad - 16) / 3;
-
-  let size;
-  if (overflow) {
-    size = Math.max(4, Math.min(slotFromV, slotFromW));
-  } else {
-    size = Math.max(4, Math.min(maxSlot, slotFromV, slotFromW));
-  }
-  const row = size + padV;
-
-  const uiScaleSizeMin = 22;
-  const uiScaleMin = 0.78;
-  const uiScale = Math.max(uiScaleMin, Math.min(1,
-      uiScaleMin + (size - uiScaleSizeMin) / (maxSlot - uiScaleSizeMin) * (1 - uiScaleMin)));
-
-  section.style.setProperty('--slot-size', `${size}px`);
-  section.style.setProperty('--row-pad-v', `${padV / 2}px`);
+  section.style.setProperty('--slot-size', `${best.slot}px`);
+  section.style.setProperty('--row-pad-v', `${best.padV / 2}px`);
   section.style.setProperty('--row-ui-scale', `${uiScale.toFixed(3)}`);
-  section.style.gridTemplateRows = `repeat(${perCol}, ${row}px)`;
-  section.style.gridTemplateColumns = portrait
-    ? 'minmax(0,1fr)'
+  section.style.gridTemplateRows = `repeat(${best.perCol}, ${best.rowBudget}px)`;
+  // 两列：始终保留两条轨道（左列靠最左）；单列：宽度收到上限，不拉满整行，整体水平居中
+  section.style.gridTemplateColumns = best.colCount === 1
+    ? `min(100%, ${TL_ROW_MAX_W}px)`
     : 'minmax(0,1fr) minmax(0,1fr)';
+  section.style.justifyContent = best.colCount === 1 ? 'center' : '';
   section.style.gridAutoFlow = 'column';
+  // 内容不足一屏 → 垂直居中（留白上下均分）；满屏或滚动 → 顶部对齐
+  section.style.alignContent = (!scroll && best.contentH < availH - 2) ? 'center' : 'start';
+  section.classList.toggle('team-scroll', scroll);
 }
 
 window.addEventListener('resize', function () {
@@ -1212,15 +1240,23 @@ const TeamDrag = {
       cap[c] = (c < numCols - 1) ? perCol : Math.max(0, n - (numCols - 1) * perCol);
     }
     // 选择水平方向最近、且仍有容量的列
+    // justify-content:center（单列收窄后居中）时所有列整体右移，落位计算要补上这段偏移
+    const tracksW = cols.reduce((a, b) => a + b, 0) + (numCols - 1) * colGap;
+    const hFree = section.clientWidth - padL - (parseFloat(cs.paddingRight) || 0) - tracksW;
+    const hOff = (cs.justifyContent === 'center' && hFree > 0) ? hFree / 2 : 0;
     let col = 0, best = Infinity;
     for (let c = 0; c < numCols; c++) {
       if (cap[c] <= 0) continue;
-      const centerX = r.left + padL + c * (colW + colGap) + colW / 2;
+      const centerX = r.left + padL + hOff + c * (colW + colGap) + colW / 2;
       const d = Math.abs(cx - centerX);
       if (d < best) { best = d; col = c; }
     }
     // 行：按行高+行距取最近行，再按该列容量钳制
-    let row = Math.round((cy - (r.top + padT + rowH / 2)) / (rowH + rowGap));
+    // alignContent:center 时网格内容整体下移，落位计算要补上这段偏移
+    const contentH = rowH * rows.length + rowGap * Math.max(0, rows.length - 1);
+    const free = section.clientHeight - padT - (parseFloat(cs.paddingBottom) || 0) - contentH;
+    const vOff = (cs.alignContent === 'center' && free > 0) ? free / 2 : 0;
+    let row = Math.round((cy - (r.top + padT + vOff + rowH / 2)) / (rowH + rowGap));
     row = Math.min(Math.max(row, 0), Math.max(0, cap[col] - 1));
 
     return Math.min(Math.max(col * perCol + row, 0), n - 1);
