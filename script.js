@@ -31,10 +31,13 @@ let extraUseChars = [];
 // 页面3（BOSS 分配）：{ bossNames:[5个名称], rounds:[[{teamId,x,w}...],...] }
 // x/w 为 0~1 连续比例：x=块左端占轨道宽度的比例，w=块宽度比例（宽度即该队打掉的血量占比）
 let bossPage = defaultBossPage();
+// 队伍 id 计数器：单调只增、随用户持久化。删除队伍后新队伍不再复用旧 id，
+// 避免页面3 里引用旧 id 的块静默错绑到新队伍。
+let teamIdSeq = 0;
 
 // ================= 用户元数据 =================
 // gameUsersMeta: { seq, currentUid, users:[{uid,name}] }
-// userData_${uid}: { charData:{角色名:{owned,chain,weapon}}, teams, extraUseChars }
+// userData_${uid}: { charData:{角色名:{owned,chain,weapon}}, teams, extraUseChars, bossPage, teamIdSeq }
 // globalShowAttr: 'true'/'false'（跨用户）
 const META_KEY = 'gameUsersMeta';
 let meta = { seq: 0, currentUid: null, users: [] };
@@ -75,7 +78,10 @@ function migrateLegacy() {
     try { gsData = gs ? JSON.parse(gs) : {}; } catch { gsData = {}; }
     data.teams = gsData.teams || Array.from({ length: 3 }, () => ({ slots: [null, null, null] }));
     data.extraUseChars = gsData.extraUseChars || [];
-    localStorage.setItem(`userData_${i}`, JSON.stringify(data));
+    // 目标键已存在则不覆盖：绝不用旧版数据（无 bossPage、队伍无 id）抹掉已存在的数据
+    if (localStorage.getItem(`userData_${i}`) == null) {
+      localStorage.setItem(`userData_${i}`, JSON.stringify(data));
+    }
     users.push({ uid: i, name: `用户${i}` });
     seq = Math.max(seq, i);
   }
@@ -92,14 +98,23 @@ function migrateLegacy() {
 // ================= 队伍稳定 id =================
 // 页面3 通过 teamId 引用队伍（而非数组下标），避免页面2 增删/调序后分配错位
 function ensureTeamIds() {
-  let maxId = 0;
+  seedTeamIdSeq();
+  teams.forEach(t => { if (typeof t.id !== 'number') t.id = ++teamIdSeq; });
+}
+// 把计数器抬到不低于「现存队伍 id」与「页面3 仍引用的队伍 id」的最大值：
+// 前者避免与在用队伍撞号；后者避免新队伍复用旧 id、把页面3 里残留的失效块错绑成有效块。
+function seedTeamIdSeq() {
+  let maxId = teamIdSeq;
   teams.forEach(t => { if (typeof t.id === 'number' && t.id > maxId) maxId = t.id; });
-  teams.forEach(t => { if (typeof t.id !== 'number') t.id = ++maxId; });
+  const rounds = (bossPage && bossPage.rounds) || [];
+  rounds.forEach(r => (Array.isArray(r) ? r : []).forEach(p => {
+    if (p && typeof p.teamId === 'number' && p.teamId > maxId) maxId = p.teamId;
+  }));
+  teamIdSeq = maxId;
 }
 function nextTeamId() {
-  let maxId = 0;
-  teams.forEach(t => { if (typeof t.id === 'number' && t.id > maxId) maxId = t.id; });
-  return maxId + 1;
+  seedTeamIdSeq();
+  return ++teamIdSeq; // 单调只增：已用过的 id 绝不回收
 }
 function getTeamById(id) { return teams.find(t => t.id === id); }
 
@@ -127,15 +142,16 @@ function loadUser(uid) {
     bossPage = null;
   }
   teams.forEach(t => { if (!Array.isArray(t.slots)) t.slots = [null, null, null]; });
+  teamIdSeq = d ? (Number(d.teamIdSeq) || 0) : 0; // 恢复该用户的 id 计数器（旧数据无此字段 → 0）
   ensureTeamIds();
-  bossPage = normalizeBossPage(bossPage); // 过滤掉已失效的队伍引用
+  bossPage = normalizeBossPage(bossPage); // 规整格式；失效的队伍引用保留，不在此处删除
 }
 function saveData() {
   if (meta.currentUid == null) return;
   pruneContinuations(); // 续接链失效的后续块一并清理，保证存盘、内存与界面三者一致
   const charData = {};
   characters.forEach(char => { charData[char.name] = { owned: char.owned, chain: char.chain, weapon: char.weapon }; });
-  localStorage.setItem(`userData_${meta.currentUid}`, JSON.stringify({ charData, teams, extraUseChars, bossPage }));
+  localStorage.setItem(`userData_${meta.currentUid}`, JSON.stringify({ charData, teams, extraUseChars, bossPage, teamIdSeq }));
   saveMeta();
   localStorage.setItem('globalShowAttr', showAttr.toString());
 }
@@ -390,7 +406,9 @@ function mkBtn(text, cls, handler) {
 
 // 添加用户（新用户追加到底部，不自动设为当前）
 function addUser(name, activate) {
-  meta.seq += 1;
+  // uid 必须避开任何已存在的 userData_ 键（含历史遗留的孤儿键）：
+  // 否则新用户会直接继承那份数据，而不是从空白开始
+  do { meta.seq += 1; } while (localStorage.getItem(`userData_${meta.seq}`) != null);
   const u = { uid: meta.seq, name };
   meta.users.push(u);
   if (activate) meta.currentUid = u.uid;
@@ -1530,6 +1548,7 @@ function autoContinuation(roundIdx) {
   let a1 = null; // 取最靠右的那个贴边块作为续接来源
   prev.forEach(p => { if (isEdgeRight(p) && (!a1 || p.x + p.w > a1.x + a1.w)) a1 = p; });
   if (!a1) return null;
+  if (!getTeamById(a1.teamId)) return null; // 来源队伍已被删除 → 不派生占位
   if (round.some(p => p.teamId === a1.teamId)) return null; // 该队本轮已有实体块
   const leftmost = round.reduce((m, p) => Math.min(m, p.x), 1);
   if (leftmost <= 1e-6) return null;                   // b 已贴到最左端：不存在可供续接的间隙
@@ -1724,6 +1743,7 @@ function isContinuationBlock(p) { return !!p.cont; }
 // 按轮次升序处理，故前驱被删后，后一轮能立即感知到，形成 a1→a2→a3 的连锁清理。
 function pruneContinuations() {
   const rounds = (bossPage && bossPage.rounds) || [];
+  const validIds = new Set(teams.map(t => t.id));
   let removed = 0;
   for (let r = 1; r < rounds.length; r++) {
     const prev = rounds[r - 1];
@@ -1731,6 +1751,7 @@ function pruneContinuations() {
     for (let i = round.length - 1; i >= 0; i--) {
       const p = round[i];
       if (!p.cont) continue; // 普通块（含自由移动到最左端的块）不参与清理
+      if (!validIds.has(p.teamId)) continue; // 队伍已失效的块保留，由页面3 标示后交给用户处理
       if (prev.some(q => q.teamId === p.teamId && isEdgeRight(q))) continue; // 支撑仍在
       round.splice(i, 1);
       removed++;
@@ -1806,7 +1827,8 @@ function defaultBossPage() {
   return { bossNames: BOSS_DEF_NAMES.slice(), rounds: [[]], autoOff: [] };
 }
 
-// 规范化：补齐 5 个 BOSS 名、过滤失效队伍引用、钳制 x/w（兼容旧的 col/span 格式）
+// 规范化：补齐 5 个 BOSS 名、钳制 x/w（兼容旧的 col/span 格式）。
+// 失效的队伍引用一律保留，不在加载时删除 —— 删除动作只由用户在界面上的 ✕ 触发。
 function normalizeBossPage(bp) {
   const def = defaultBossPage();
   if (!bp) return def;
@@ -1814,9 +1836,10 @@ function normalizeBossPage(bp) {
     ? bp.bossNames.slice() : def.bossNames.slice();
   // 旧的占位名（BOSS-1…BOSS-5）迁移为新的默认名
   names.forEach((n, i) => { if (!n || n === `BOSS-${i + 1}`) names[i] = BOSS_DEF_NAMES[i]; });
-  const validIds = new Set(teams.map(t => t.id));
   let rounds = (Array.isArray(bp.rounds) && bp.rounds.length) ? bp.rounds : [[]];
-  rounds = rounds.map(r => (Array.isArray(r) ? r : []).filter(p => p && validIds.has(p.teamId))
+  // 队伍已被删除的块【不】在这里丢弃：原样保留，由页面3 用「队伍已失效」标示，
+  // 让用户自己决定移除。避免一次加载就把整份排布永久抹掉。
+  rounds = rounds.map(r => (Array.isArray(r) ? r : []).filter(p => p)
     .map(p => {
       let x, w;
       if (typeof p.x === 'number' && typeof p.w === 'number') {
@@ -1977,12 +2000,14 @@ function renderBossTracks() {
       track.appendChild(del);
     }
     round.forEach((p, pIndex) => {
+      // 队伍已被删除 → 不丢弃块：渲染为占位并明确标示「队伍已失效」，由用户决定是否移除
       const team = getTeamById(p.teamId);
-      if (!team) return;
+      const orphan = !team;
       // 「续接」块（a2/a3…）：钉在本轮最左端，不可整体移动、无左手柄，只能靠右手柄向右拉伸
       const cont = isContinuationBlock(p);
-      const el = buildTeamBlock(team);
+      const el = buildTeamBlock(orphan ? { slots: [null, null, null] } : team);
       el.classList.add('placement');
+      if (orphan) el.classList.add('placement-orphan');
       if (cont) el.classList.add('placement-locked');
       el.dataset.teamId = p.teamId;
       el.style.left = `${p.x * 100}%`;
@@ -1991,8 +2016,16 @@ function renderBossTracks() {
       // 分数：显示在块上方居中的预留空间内（算法见 bossTeamScore）
       const score = document.createElement('div');
       score.className = 'placement-score';
-      score.textContent = bossTeamScore(p.teamId);
+      score.textContent = orphan ? '—' : bossTeamScore(p.teamId);
       el.appendChild(score);
+
+      if (orphan) {
+        const tag = document.createElement('div');
+        tag.className = 'orphan-tag';
+        tag.textContent = '队伍已失效';
+        el.title = `该块引用的队伍（id ${p.teamId}）在页面2 已被删除，排布数据已保留。可拖动调整位置，点 ✕ 移除。`;
+        el.appendChild(tag);
+      }
 
       const del = document.createElement('button');
       del.type = 'button';
