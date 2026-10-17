@@ -579,6 +579,7 @@ body.pointer-dragging {
   position: fixed;
   width: 100vw;
   height: 100vh;
+  height: 100dvh; /* 移动端：地址栏伸缩时按可视区域计算，避免弹窗高度跳动（100vh 作旧浏览器回退） */
   top: 0;
   left: 0;
   background: rgba(0,0,0,.6);
@@ -762,6 +763,30 @@ body.pointer-dragging {
 .msg.err { color: #f87171; }
 .msg.ok  { color: #4ade80; }
 .msg.hint { color: #9ca3af; font-size: 12px; }
+
+/* 轻提示：用于「保存失败」「链接里的分享码无效」这类无法挂到某个输入框上的失败提示。
+   层级高于模态窗(1000)、低于拖拽幽灵(9999)，所以在导入弹窗里也能看见。 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  transform: translate(-50%, 12px);
+  max-width: min(90vw, 460px);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(31, 41, 55, .97);
+  border: 1px solid #374151;
+  color: #f3f4f6;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  z-index: 9990;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
 .close-x {
   background: none;
   border: none;
@@ -1033,6 +1058,8 @@ body.pointer-dragging {
 .placement:hover { border-color: #4ade80; }
 /* 「续接」块（a2/a3…）：钉在本轮最左端，不可整体拖动，只能靠右手柄向右拉伸 */
 .placement.placement-locked { cursor: default; }
+/* 「尾部续接」块（反向）：钉在本轮最右端，不可整体拖动，只能靠左手柄向左拉伸 */
+.placement.placement-locked-tail { cursor: default; }
 /* 「队伍已失效」块：引用的队伍在页面2 已被删除，但排布数据保留（不再被静默清除）。
    用橙色虚线 + 斜纹 + 文字明确标示，由用户自己决定是否点 ✕ 移除 */
 .placement.placement-orphan {
