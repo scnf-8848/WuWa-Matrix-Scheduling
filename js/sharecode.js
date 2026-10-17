@@ -1,5 +1,6 @@
 // ================= 分享码编解码（v2 稠密） =================
-// 纯逻辑：只依赖 characterTemplates 与 localStorage，不碰 DOM，可单独测试。
+// 纯逻辑：只依赖 characterTemplates，不碰 DOM 也不碰存储，可单独测试。
+// 读写某个用户（迁移旧格式、写盘）在 store.js 的 encodeUserState / importStateToUser。
 //
 // 分享码 = [按 6bit 打包的 base64url 载荷] + [校验和字符]
 //
@@ -64,12 +65,11 @@ function stateToValue(c) {
   const chain = Math.max(0, Math.min(6, c.chain | 0));
   return 1 + chain * 2 + (c.weapon > 0 ? 1 : 0);
 }
-function valueToState(c, v) {
-  if (!v) { c.owned = false; c.chain = 0; c.weapon = 0; return; }
-  c.owned = true;
+// 状态值 → 单角色状态（纯函数：分享码只带「专武有无」，本地仍存 0-5）
+function decodeValue(v) {
+  if (!v) return { owned: false, chain: 0, weapon: 0 };
   const t = v - 1;
-  c.chain = Math.floor(t / 2);
-  c.weapon = (t % 2 === 1) ? 1 : 0; // 分享码只保留「有无专武」，本地仍存 0-5
+  return { owned: true, chain: Math.floor(t / 2), weapon: (t % 2 === 1) ? 1 : 0 };
 }
 
 // 角色状态 → 比特串（每个位置固定 4bit；勾了额外疲劳的角色再跟一个 1111 哨兵）
@@ -80,7 +80,7 @@ function buildBits(chars, extraSet) {
   let bits = '';
   for (let i = 0; i < last; i++) {
     bits += bit4(stateToValue(chars[i]));
-    if (chars[i].owned && extraSet.has(chars[i].name)) bits += '1111';
+    if (chars[i].owned && extraSet.has(chars[i].id)) bits += '1111';
   }
   return bits;
 }
@@ -93,18 +93,15 @@ function packBits(bits) {
   return out;
 }
 
-// 用户数据 → 分享码
-function encodeUserState(uid) {
-  const raw = localStorage.getItem(`userData_${uid}`);
-  let d = {};
-  if (raw) { try { d = JSON.parse(raw); } catch { d = {}; } }
-  const charData = d.charData || {};
-  const extraSet = new Set(d.extraUseChars || []);
+// 角色状态表 → 分享码（纯函数）。states: [{id, owned, chain, weapon}]；extraIds: 额外疲劳的 id 集合。
+// 规范顺序之外的 id（未实装角色）自动忽略 —— 它们本来就不参与编码。
+function encodeCharStates(states, extraIds) {
+  const byId = new Map((states || []).map(s => [s.id, s]));
   const chars = canonicalChars().map(t => {
-    const uc = charData[t.name] || { owned: false, chain: 0, weapon: 0 };
-    return { name: t.name, owned: !!uc.owned, chain: uc.chain || 0, weapon: uc.weapon || 0 };
+    const s = byId.get(t.id) || {};
+    return { id: t.id, owned: !!s.owned, chain: s.chain || 0, weapon: s.weapon || 0 };
   });
-  const body = packBits(buildBits(chars, extraSet));
+  const body = packBits(buildBits(chars, new Set(extraIds || [])));
   return body + calcChecksum(body);
 }
 
@@ -149,36 +146,6 @@ function decodeState(code) {
   return { ok: true, states, extra };
 }
 
-// 把分享码写入指定用户的角色库（覆盖角色数据与额外疲劳，保留队伍）
-function importStateToUser(uid, code) {
-  const res = decodeState(code);
-  if (!res.ok) return res;
-  const chars = characterTemplates.map(t => ({ ...t, owned: false, chain: 0, weapon: 0 }));
-  const canon = canonicalChars();
-  canon.forEach((tpl, i) => {
-    const c = chars.find(x => x.name === tpl.name);
-    if (c) valueToState(c, i < res.states.length ? res.states[i] : 0);
-  });
-  const charData = {};
-  chars.forEach(c => { charData[c.name] = { owned: c.owned, chain: c.chain, weapon: c.weapon }; });
-  const extraUseChars = [];
-  res.extra.forEach(i => { if (canon[i]) extraUseChars.push(canon[i].name); });
-  let d = {};
-  const raw = localStorage.getItem(`userData_${uid}`);
-  if (raw) { try { d = JSON.parse(raw); } catch { d = {}; } }
-  d.charData = charData;
-  d.extraUseChars = extraUseChars;
-  // 队伍槽位里不能留下「新状态中未持有」的角色：否则页面2/3 仍会显示该角色（头像照画、分数照算），
-  // 而左侧角色池里已经没有它，用户无法通过任何正常操作把它清掉。这里只清空槽位，保留队伍结构本身。
-  // 名字已不存在于角色模板（改过名/被移除）的槽位同样清空 —— 它同样属于「不持有」。
-  if (Array.isArray(d.teams)) {
-    d.teams = d.teams.map(t => {
-      if (!t || !Array.isArray(t.slots)) return t;
-      return { ...t, slots: t.slots.map(s => (s && s.name && charData[s.name] && charData[s.name].owned) ? s : null) };
-    });
-  }
-  if (!writeStore(`userData_${uid}`, JSON.stringify(d))) {
-    return { ok: false, error: '写入失败：浏览器存储不可用或空间已满，本次导入未生效' };
-  }
-  return { ok: true };
-}
+// 说明：把码写进某个用户、以及从某个用户导出码，都需要读写存储与迁移旧格式，
+// 属于数据层，见 store.js 的 importStateToUser / encodeUserState。本文件只负责编解码。
+

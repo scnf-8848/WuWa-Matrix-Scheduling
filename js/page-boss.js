@@ -166,27 +166,25 @@ function refreshTotalScore() {
 }
 
 // 精简队伍块：3 个头像位（空位留白，整块可拖拽）
-function buildTeamBlock(team) {
-  const block = document.createElement('div');
-
+function buildBossSlots(team) {
   const slots = document.createElement('div');
   slots.className = 'boss-slots';
   for (let i = 0; i < 3; i++) {
     const cell = document.createElement('div');
     cell.className = 'boss-slot';
     const slot = team.slots[i];
-    if (slot) {
+    const char = slot ? charById.get(slot.id) : null;
+    if (char) {
       const img = document.createElement('img');
-      img.src = getAvatar(slot.name);
-      img.alt = slot.name;
+      img.src = getAvatar(char.name);
+      img.alt = char.name;
       img.draggable = false;
       img.loading = 'lazy';
       img.decoding = 'async';
       img.onerror = function () { handleImgError(this); };
       cell.appendChild(img);
 
-      const char = charByName.get(slot.name);
-      if (char && showAttr) {
+      if (showAttr) {
         const attr = document.createElement('div');
         attr.className = 'attr';
         attr.textContent = `${char.chain}+${char.weapon}`;
@@ -195,7 +193,11 @@ function buildTeamBlock(team) {
     }
     slots.appendChild(cell);
   }
-  block.appendChild(slots);
+  return slots;
+}
+function buildTeamBlock(team) {
+  const block = document.createElement('div');
+  block.appendChild(buildBossSlots(team));
   return block;
 }
 
@@ -207,6 +209,7 @@ function renderBossPage() {
     header.innerHTML = '';
     teamList.innerHTML = '';
     tracks.innerHTML = '';
+    tracks.dataset.epoch = String(dataEpoch);
     trackNodeCache = [];
     teamList.appendChild(emptyHint());
     refreshTotalScore(); // 无用户 → 总分数归零
@@ -223,7 +226,7 @@ function renderBossPage() {
 function renderBossTeamList() {
   const list = document.getElementById('bossTeamList');
   list.innerHTML = '';
-  const visible = teams.filter(t => t.slots && t.slots.some(s => s && s.name));
+  const visible = teams.filter(t => t.slots && t.slots.some(s => s && s.id));
   if (!visible.length) {
     const h = document.createElement('div');
     h.className = 'boss-empty-hint';
@@ -256,144 +259,194 @@ function renderBossHeader() {
   });
 }
 
-// 轨道：每轮一条，内部按 5 列对齐
+// ===== 轨道：keyed 渲染 =====
+// 每次落位/拉伸都整条重建的话，所有块的头像都要重新解码、正在播放的过渡也会被打断。
+// 这里轨道按轮次下标、块按「teamId + 同队第几个」复用节点，只改位置/宽度/分数。
+function createTrackNode() {
+  const track = document.createElement('div');
+  track.className = 'boss-track';
+
+  // 竖排轮次标题：放轨道最左侧，不占用轨道高度
+  const rail = document.createElement('div');
+  rail.className = 'track-rail';
+  const label = document.createElement('span');
+  label.className = 'track-label';
+  rail.appendChild(label);
+  track.appendChild(rail);
+
+  const grid = document.createElement('div');
+  grid.className = 'track-grid';
+  track.appendChild(grid);
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'track-del';
+  del.textContent = '✕';
+  del.title = '删除本轮';
+  del.addEventListener('pointerdown', (e) => e.stopPropagation());
+  del.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const rIndex = Number(track.dataset.round);
+    if (!(rIndex >= 1)) return;
+    commit(() => {
+      bossPage.rounds.splice(rIndex, 1);
+      // autoOff / autoOffTail 存的是轮次下标：删掉中间一轮后其后整体前移，
+      // 不做重映射会让「已停用」标记落到错误的轮次上（reload 前不会自我修正）
+      const dropAndShift = arr => (Array.isArray(arr) ? arr : [])
+        .filter(n => n !== rIndex)
+        .map(n => (n > rIndex ? n - 1 : n));
+      bossPage.autoOff = dropAndShift(bossPage.autoOff);
+      bossPage.autoOffTail = dropAndShift(bossPage.autoOffTail);
+    }, renderBossPage);
+  });
+  track.appendChild(del);
+  return track;
+}
+
+function updateTrack(track, rIndex) {
+  const round = bossPage.rounds[rIndex] || [];
+  track.dataset.round = rIndex;
+  track.querySelector('.track-label').textContent = `第${rIndex + 1}轮`;
+  // 第 1 轮不可删（原实现是干脆不创建按钮）
+  track.querySelector('.track-del').style.display = rIndex >= 1 ? '' : 'none';
+
+  const grid = track.querySelector(':scope > .track-grid');
+  // 块没有持久 id：用「队伍 id + 该队在本轮的第几个块」作 key。
+  // 正常情况下每轮最多一个块，只有队伍被删后的残留块可能重复。
+  const occ = new Map();
+  const items = round.map((p, pIndex) => {
+    const base = String(p.teamId);
+    const n = occ.get(base) || 0;
+    occ.set(base, n + 1);
+    return { p, pIndex, rIndex, key: `p:${base}:${n}` };
+  });
+  reconcile(grid, items, it => it.key, createPlacement, updatePlacement);
+}
+
 function renderBossTracks() {
   const tracks = document.getElementById('bossTracks');
-  tracks.innerHTML = '';
-  trackNodeCache = []; // 重建轨道 → 节点缓存作废（见 bossTrackNode）
-  bossPage.rounds.forEach((round, rIndex) => {
-    const track = document.createElement('div');
-    track.className = 'boss-track';
-    track.dataset.round = rIndex;
+  renderEpoch(tracks);
+  // 轨道按下标复用：删掉中间一轮时，后面的轨道节点会被改写为新的轮次（内容整块刷新）
+  reconcile(tracks, bossPage.rounds.map((_, i) => i), i => i, createTrackNode, updateTrack);
+  trackNodeCache = Array.from(tracks.querySelectorAll('.boss-track'));
+  // 占位块与续接符号依赖相邻轮次，统一在块都就位之后同步
+  bossPage.rounds.forEach((_, rIndex) => syncAutoPlaceholder(rIndex));
+}
 
-    // 竖排轮次标题：放轨道最左侧，不占用轨道高度
-    const rail = document.createElement('div');
-    rail.className = 'track-rail';
-    const label = document.createElement('span');
-    label.className = 'track-label';
-    label.textContent = `第${rIndex + 1}轮`;
-    rail.appendChild(label);
-    track.appendChild(rail);
+// ===== 单个块 =====
+// 块内部结构（头像位 / 删除按钮 / 拉伸手柄）只在「队伍内容或续接类型」变化时重建
+function placementSignature(p) {
+  const team = getTeamById(p.teamId);
+  return [
+    p.teamId,
+    p.cont ? 1 : 0,
+    p.contTail ? 1 : 0,
+    team ? 1 : 0,
+    team ? team.slots.map(s => (s ? s.id : '')).join('.') : '',
+    showAttr ? 1 : 0,
+  ].join('|');
+}
 
-    const grid = document.createElement('div');
-    grid.className = 'track-grid';
-    track.appendChild(grid);
-
-    if (rIndex >= 1) { // 第 2 轮起可删除
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'track-del';
-      del.textContent = '✕';
-      del.title = '删除本轮';
-      del.addEventListener('pointerdown', (e) => e.stopPropagation());
-      del.addEventListener('click', (e) => {
-        e.stopPropagation();
-        commit(() => {
-          bossPage.rounds.splice(rIndex, 1);
-          // autoOff / autoOffTail 存的是轮次下标：删掉中间一轮后其后整体前移，
-          // 不做重映射会让「已停用」标记落到错误的轮次上（reload 前不会自我修正）
-          const dropAndShift = arr => (Array.isArray(arr) ? arr : [])
-            .filter(n => n !== rIndex)
-            .map(n => (n > rIndex ? n - 1 : n));
-          bossPage.autoOff = dropAndShift(bossPage.autoOff);
-          bossPage.autoOffTail = dropAndShift(bossPage.autoOffTail);
-        }, renderBossPage);
-      });
-      track.appendChild(del);
-    }
-    round.forEach((p, pIndex) => {
-      // 队伍已被删除 → 不丢弃块：渲染为占位并明确标示「队伍已失效」，由用户决定是否移除
-      const team = getTeamById(p.teamId);
-      const orphan = !team;
-      // 「续接」块（a2/a3…）：钉在本轮最左端，不可整体移动、无左手柄，只能靠右手柄向右拉伸
-      const cont = isContinuationBlock(p);
-      // 「尾部续接」块（反向续接）：钉在本轮最右端，不可整体移动、无右手柄，只能靠左手柄向左拉伸
-      const contTail = isTailContinuationBlock(p);
-      const el = buildTeamBlock(orphan ? { slots: [null, null, null] } : team);
-      el.classList.add('placement');
-      if (orphan) el.classList.add('placement-orphan');
-      if (cont) el.classList.add('placement-locked');
-      if (contTail) el.classList.add('placement-locked-tail');
-      el.dataset.teamId = p.teamId;
-      el.style.left = `${p.x * 100}%`;
-      el.style.width = `${p.w * 100}%`;
-
-      // 分数：显示在块上方居中的预留空间内（算法见 bossTeamScore）
-      const score = document.createElement('div');
-      score.className = 'placement-score';
-      score.textContent = orphan ? '—' : bossTeamScore(p.teamId);
-      el.appendChild(score);
-
-      if (orphan) {
-        const tag = document.createElement('div');
-        tag.className = 'orphan-tag';
-        tag.textContent = '队伍已失效';
-        el.title = `该块引用的队伍（id ${p.teamId}）在页面2 已被删除，排布数据已保留。可拖动调整位置，点 ✕ 移除。`;
-        el.appendChild(tag);
-      }
-
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'placement-del';
-      del.textContent = '✕';
-      del.title = '移除';
-      del.addEventListener('pointerdown', (e) => e.stopPropagation());
-      del.addEventListener('click', (e) => {
-        e.stopPropagation();
-        commit(() => { bossPage.rounds[rIndex].splice(pIndex, 1); }, renderBossPage);
-      });
-      el.appendChild(del);
-
-      // 左右边缘拖动 → 连续调整该队占用的血量区间（不越过相邻队伍）
-      // 前向续接块钉左端：无左手柄；反向续接块钉右端：无右手柄
-      if (!cont) {
-        const rzL = document.createElement('div');
-        rzL.className = 'placement-resize placement-resize-left';
-        rzL.title = '拖动调整左边界';
-        rzL.addEventListener('pointerdown', (e) => {
-          if (e.pointerType === 'mouse' && e.button !== 0) return;
-          e.stopPropagation();
-          BossDrag.beginResize(e, rIndex, pIndex, 'left');
-        });
-        el.appendChild(rzL);
-      }
-
-      if (!contTail) {
-        const rzR = document.createElement('div');
-        rzR.className = 'placement-resize placement-resize-right';
-        rzR.title = '拖动调整右边界';
-        rzR.addEventListener('pointerdown', (e) => {
-          if (e.pointerType === 'mouse' && e.button !== 0) return;
-          e.stopPropagation();
-          BossDrag.beginResize(e, rIndex, pIndex, 'right');
-        });
-        el.appendChild(rzR);
-      }
-
-      // 续接块不可整体移动（前向钉左端、反向钉右端），只能靠另一侧手柄拉伸
-      if (!cont && !contTail) setupBossDrag(el, 'move', { round: rIndex, index: pIndex });
-      grid.appendChild(el);
-    });
-    // 自动续接占位：R 轮贴边队伍的续接输出，补齐 R+1 轮最左端放不下队伍块的空隙
-    const auto = autoContinuation(rIndex);
-    if (auto) {
-      const ph = buildAutoPlaceholder(auto, rIndex, 'left');
-      if (ph) grid.appendChild(ph);
-    }
-    // 自动尾部占位（反向）：R+1 轮贴左队伍的续接输出，补齐 R 轮最右端的空隙
-    const autoT = autoTail(rIndex);
-    if (autoT) {
-      const ph = buildAutoPlaceholder(autoT, rIndex, 'right');
-      if (ph) grid.appendChild(ph);
-    }
-    // 续接链接符号：本轮标签下方（指向 R−1↔R）+ 上一轮右侧（指向 R↔R+1）
-    const linkIn = linkIncoming(rIndex);
-    if (linkIn) rail.appendChild(buildLinkBadge(rIndex, 'in', linkIn));
-    const linkOut = linkIncoming(rIndex + 1);
-    if (linkOut) track.appendChild(buildLinkBadge(rIndex + 1, 'out', linkOut));
-    tracks.appendChild(track);
-    trackNodeCache.push(track);
+function createPlacement() {
+  const el = document.createElement('div');
+  el.className = 'placement';
+  el._sig = null;
+  // 整体移动：只绑一次，轮次/下标在按下时从 dataset 现取（节点会被复用）
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // 续接块（前向钉左 / 反向钉右）不可整体移动，只能拉另一侧手柄
+    if (el.classList.contains('placement-locked') || el.classList.contains('placement-locked-tail')) return;
+    bossDragBegin(e, 'move', {
+      round: Number(el.dataset.round),
+      index: Number(el.dataset.pIndex),
+    }, e.pointerType !== 'mouse');
   });
+  return el;
+}
+
+function buildPlacementContents(el, p, orphan, cont, contTail) {
+  el.innerHTML = '';
+  const team = getTeamById(p.teamId);
+  el.appendChild(buildBossSlots(orphan ? { slots: [null, null, null] } : team));
+
+  // 分数：显示在块上方居中的预留空间内（算法见 bossTeamScore）
+  const score = document.createElement('div');
+  score.className = 'placement-score';
+  el.appendChild(score);
+
+  if (orphan) {
+    const tag = document.createElement('div');
+    tag.className = 'orphan-tag';
+    tag.textContent = '队伍已失效';
+    el.appendChild(tag);
+  }
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'placement-del';
+  del.textContent = '✕';
+  del.title = '移除';
+  del.addEventListener('pointerdown', (e) => e.stopPropagation());
+  del.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = Number(el.dataset.round);
+    const i = Number(el.dataset.pIndex);
+    commit(() => { bossPage.rounds[r].splice(i, 1); }, renderBossPage);
+  });
+  el.appendChild(del);
+
+  // 左右边缘拖动 → 连续调整该队占用的血量区间（不越过相邻队伍）
+  // 前向续接块钉左端：无左手柄；反向续接块钉右端：无右手柄
+  if (!cont) {
+    const rzL = document.createElement('div');
+    rzL.className = 'placement-resize placement-resize-left';
+    rzL.title = '拖动调整左边界';
+    rzL.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.stopPropagation();
+      BossDrag.beginResize(e, Number(el.dataset.round), Number(el.dataset.pIndex), 'left');
+    });
+    el.appendChild(rzL);
+  }
+  if (!contTail) {
+    const rzR = document.createElement('div');
+    rzR.className = 'placement-resize placement-resize-right';
+    rzR.title = '拖动调整右边界';
+    rzR.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.stopPropagation();
+      BossDrag.beginResize(e, Number(el.dataset.round), Number(el.dataset.pIndex), 'right');
+    });
+    el.appendChild(rzR);
+  }
+}
+
+function updatePlacement(el, item) {
+  const { p, pIndex, rIndex } = item;
+  const team = getTeamById(p.teamId);
+  const orphan = !team;
+  const cont = isContinuationBlock(p);
+  const contTail = isTailContinuationBlock(p);
+
+  el.dataset.round = rIndex;
+  el.dataset.pIndex = pIndex;
+  el.dataset.teamId = p.teamId;
+  el.style.left = `${p.x * 100}%`;
+  el.style.width = `${p.w * 100}%`;
+  el.classList.toggle('placement-orphan', orphan);
+  el.classList.toggle('placement-locked', cont);
+  el.classList.toggle('placement-locked-tail', contTail);
+
+  const sig = placementSignature(p);
+  if (el._sig !== sig) {
+    buildPlacementContents(el, p, orphan, cont, contTail);
+    el.title = orphan
+      ? `该块引用的队伍（id ${p.teamId}）在页面2 已被删除，排布数据已保留。可拖动调整位置，点 ✕ 移除。`
+      : '';
+    el._sig = sig;
+  }
+  const score = el.querySelector('.placement-score');
+  if (score) score.textContent = orphan ? '—' : bossTeamScore(p.teamId);
 }
 
 // 新一轮
@@ -461,10 +514,10 @@ const BossDrag = createDrag({
 
   onEnd(c, payload, x, y) {
     if (payload.mode === 'resize') {
-      // 缩短后不再贴住本轮最右端 → 后续续接块失去支撑，级联删除并重渲染轨道
+      // 缩短后不再贴住本轮最右端 → 后续续接块失去支撑，级联删除并重渲染轨道。
+      // 拉伸只改 x/w（不动槽位），DOM 已在拖拽过程中就位：结构没变时用 render=false 跳过重绘。
       const removed = pruneContinuations();
-      saveData(); // 内部会再幂等清理一次并落盘
-      if (removed) renderBossPage();
+      commit(null, removed ? renderBossPage : false);
       return;
     }
     bossDrop(c, payload, x, y);
@@ -488,12 +541,14 @@ const resizeQueue = createFrameQueue(x => BossDrag._doResize(x));
 function bossGrabFrac(c) { return c.grabPx / c.gridW; }
 
 // 当前被拖块在目标轨道中的宽度与应排除的下标（同轨道移动时排除自身）
-function bossDragInfo(c, targetRound) {
-  if (c.payload.mode === 'new-team') return { w: BOSS_DEF_W, exclude: -1 };
-  const srcRound = bossPage.rounds[c.payload.source.round];
-  const p = srcRound && srcRound[c.payload.source.index];
+// 显式接收 payload 而不是读 c.payload：松手时拖拽骨架已先做过清理，ctx 上的字段不可依赖
+function bossDragInfo(payload, targetRound) {
+  if (!payload) return null;
+  if (payload.mode === 'new-team') return { w: BOSS_DEF_W, exclude: -1 };
+  const srcRound = bossPage.rounds[payload.source.round];
+  const p = srcRound && srcRound[payload.source.index];
   if (!p) return null;
-  return { w: p.w, exclude: c.payload.source.round === targetRound ? c.payload.source.index : -1 };
+  return { w: p.w, exclude: payload.source.round === targetRound ? payload.source.index : -1 };
 }
 
 // 「续接」例外的新队伍：只接受落到例外轮次的指定边缘（前向→最左端 / 反向→最右端），其余位置视为不可放置
@@ -527,7 +582,7 @@ function bossTrackGhost(c, cx, cy) {
   const rect = grid.getBoundingClientRect();
   const roundIdx = parseInt(grid.closest('.boss-track').dataset.round, 10);
   const round = bossPage.rounds[roundIdx];
-  const info = round ? bossDragInfo(c, roundIdx) : null;
+  const info = round ? bossDragInfo(c.payload, roundIdx) : null;
   const fit = info ? bossFreeX(round, (cx - rect.left) / rect.width - bossGrabFrac(c), info.w, info.exclude, true) : null;
   if (!fit || !bossReuseOk(c, roundIdx, fit)) {
     grid.classList.add('drag-blocked'); // 放不下 / 例外落点不符：不吸附，仅跟随
@@ -552,7 +607,7 @@ function bossDrop(c, payload, clientX, clientY) {
     const rect = grid.getBoundingClientRect();
     const roundIdx = parseInt(grid.closest('.boss-track').dataset.round, 10);
     const round = bossPage.rounds[roundIdx];
-    const info = round ? bossDragInfo(c, roundIdx) : null;
+    const info = round ? bossDragInfo(payload, roundIdx) : null;
     if (!info) return;
     const fit = bossFreeX(round, (clientX - rect.left) / rect.width - bossGrabFrac(c), info.w, info.exclude, true);
     if (!fit || !bossReuseOk(c, roundIdx, fit)) return; // 无处可放 / 例外落点不符：保持原状

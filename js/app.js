@@ -327,6 +327,9 @@ document.getElementById('importInput').addEventListener('keydown', (e) => {
 });
 // 清空数据确认
 document.getElementById('clearOk').addEventListener('click', confirmClearAll);
+// 「全部没有」确认
+const clearOwnedOk = document.getElementById('clearOwnedOk');
+if (clearOwnedOk) clearOwnedOk.addEventListener('click', confirmClearOwned);
 
 // 删除确认
 document.getElementById('deleteOk').addEventListener('click', () => {
@@ -366,8 +369,7 @@ document.getElementById('attrToggle').checked = showAttr;
 
 document.getElementById('attrToggle').addEventListener('change', function () {
   showAttr = this.checked;
-  saveData();
-  rerenderCurrentPage();
+  commit(); // 走统一入口：规范化 → 落盘 → 重绘（默认重绘当前页）
 });
 
 const savedGlobalShowScore = localStorage.getItem('globalShowScore');

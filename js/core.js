@@ -72,6 +72,50 @@ function siteBase() {
   return origin + path;
 }
 
+// ================= keyed 渲染 =================
+// 以前每次 commit 都重建整块列表：61 张头像重新解码、滚动位置与悬停态丢失、拖拽句柄重绑。
+// 这两个助手让「同 key 的节点原地更新」，只增删真正变化的项。
+//
+// 换用户（或整份导入）时 dataEpoch 自增，容器世代不符就整体重建 ——
+// 节点上挂着的事件处理器捕获的是上一批角色对象，跨用户复用会把改动写到已失效的数据上。
+function renderEpoch(container) {
+  if (!container) return false;
+  if (container.dataset.epoch === String(dataEpoch)) return false;
+  container.innerHTML = '';
+  container.dataset.epoch = String(dataEpoch);
+  return true;
+}
+// 传入 pool 可以让节点在两个容器之间搬迁（页面1 的「已持有 / 未持有」就是同一批节点在搬家）。
+// 返回本次用到的 key 集合；调用方据此删除 pool 里已不存在于数据中的节点。
+function reconcile(container, items, keyOf, create, update, pool) {
+  const ownPool = !pool;
+  if (ownPool) {
+    pool = new Map();
+    Array.from(container.children).forEach(n => {
+      if (n.dataset && n.dataset.key != null) pool.set(n.dataset.key, n);
+    });
+  }
+  const used = new Set();
+  let prev = null;
+  items.forEach(item => {
+    const key = String(keyOf(item));
+    let node = pool.get(key);
+    if (!node) {
+      node = create(item);
+      node.dataset.key = key;
+      pool.set(key, node);
+    }
+    used.add(key);
+    update(node, item);
+    // 按数据顺序放回：at 必须在移动之前取，否则节点已被摘走会算错位置
+    const at = prev ? prev.nextSibling : container.firstChild;
+    if (at !== node) container.insertBefore(node, at);
+    prev = node;
+  });
+  if (ownPool) pool.forEach((node, key) => { if (!used.has(key)) node.remove(); });
+  return used;
+}
+
 // ================= 空态 =================
 // 空态提示（无当前用户时）
 function emptyHint() {

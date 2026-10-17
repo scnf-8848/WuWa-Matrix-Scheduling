@@ -154,6 +154,20 @@
         </div>
     </div>
 
+    <!-- 「全部没有」确认 -->
+    <div id="clearOwnedModal" class="overlay">
+        <div class="modal small-modal">
+            <div class="modal-title"><span>清空持有状态</span></div>
+            <div class="modal-body">
+                <div class="msg">确定要把<b>全部角色</b>标记为未持有吗？<br>所有队伍槽位会同时清空。<br>此操作<strong>不可撤销</strong>。</div>
+                <div class="modal-btn-row">
+                    <button class="modal-btn btn-danger" id="clearOwnedOk">全部没有</button>
+                    <button class="modal-btn btn-ghost" data-close>取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="characters.js"></script>
     <!-- 经典脚本，按依赖顺序加载：core 提供基础设施，其余按层次向后引用。
          不用 ES module：内联 onclick 需要全局函数，且 file:// 直接打开也能跑。 -->

@@ -3,8 +3,8 @@
 
 // 该角色还剩几次可用：基础次数 + 额外疲劳 - 已被放进队伍的次数
 function getRemainingUses(char) {
-  const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.name === char.name).length;
-  const total = char.totalUses + (extraUseChars.includes(char.name) ? 1 : 0);
+  const used = teams.flatMap(team => team.slots).filter(slot => slot && slot.id === char.id).length;
+  const total = char.totalUses + (extraUseChars.has(char.id) ? 1 : 0);
   return Math.max(0, total - used);
 }
 
@@ -29,15 +29,14 @@ function renderTeamPage() {
 function handleDrop(targetTeamIndex, targetSlotIndex, type, source) {
   const team = teams[targetTeamIndex];
   if (!team) return;
-  const slotValue = team.slots[targetSlotIndex];
   if (type === 'character') {
-    const name = source.name;
-    const char = charByName.get(name);
+    const char = charById.get(source.id);
     if (!char) return;
-    const rem = getRemainingUses(char);
-    const teamHasChar = team.slots.some(s => s && s.name === name);
-    if ((rem > 0 || (slotValue && slotValue.name === name)) && !teamHasChar) {
-      commit(() => { team.slots[targetSlotIndex] = { name }; }, renderTeamPage);
+    // 同一支队伍里不能出现同一个角色两次；剩余次数为 0 也不能再放。
+    // （拖回「自己原来所在的那个槽」同样被这条拦住 —— 它本来就该拦，不必为此留特例。）
+    const teamHasChar = team.slots.some(s => s && s.id === char.id);
+    if (getRemainingUses(char) > 0 && !teamHasChar) {
+      commit(() => { team.slots[targetSlotIndex] = { id: char.id }; }, renderTeamPage);
     }
     return;
   }
@@ -50,12 +49,12 @@ function handleDrop(targetTeamIndex, targetSlotIndex, type, source) {
   // 目标队里不能已经有被拖的角色。同队内互换时，源槽里的就是这个角色，必须排除「源槽」而不是「目标槽」，
   // 否则同队互换会被误判为重复。
   const dupInTarget = teams[targetTeamIndex].slots.some((s, i) =>
-    s && s.name === fromChar.name && !(fromTeam === targetTeamIndex && i === fromSlot));
+    s && s.id === fromChar.id && !(fromTeam === targetTeamIndex && i === fromSlot));
   if (dupInTarget) return;
   // 跨队交换：源队里也不能已经有「目标槽那个角色」，否则交换后源队会出现同一角色两份
   // （如 A=[X,Y,Z] 把 Y 拖到 B 的 Z 上 → 不做这条校验会得到 A=[X,Z,Z]）
   if (fromTeam !== targetTeamIndex && dstChar &&
-      teams[fromTeam].slots.some((s, i) => s && s.name === dstChar.name && i !== fromSlot)) return;
+      teams[fromTeam].slots.some((s, i) => s && s.id === dstChar.id && i !== fromSlot)) return;
   commit(() => {
     teams[fromTeam].slots[fromSlot] = dstChar;
     team.slots[targetSlotIndex] = fromChar;
@@ -120,11 +119,15 @@ const PointerDrag = createDrag({
   },
 });
 
+// source 允许传函数：keyed 渲染会复用节点，源数据（角色/槽位下标）必须在按下时现取
 function setupPointerDrag(el, type, source) {
   el.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (el.classList.contains('not-available')) return; // 可用次数为 0：不可拖
+    const src = typeof source === 'function' ? source() : source;
+    if (!src) return; // 槽位已空 / 数据已失效：不作为拖源
     suppressCharacterClick = false;
-    PointerDrag.begin(e, { type, source }, e.pointerType !== 'mouse');
+    PointerDrag.begin(e, { type, source: src }, e.pointerType !== 'mouse');
   });
 }
 
@@ -162,8 +165,10 @@ const TeamDrag = createDrag({
   },
 
   onEnd(c, payload) {
-    const from = payload.teamIndex, to = c.targetIndex;
-    if (to != null && from != null && to !== from && from < teams.length && to < teams.length) {
+    // 行节点会被复用、队伍也会被删/调序：按 id 现查下标，不用渲染时捕获的 teamIndex
+    const from = teams.findIndex(t => t.id === payload.teamId);
+    const to = c.targetIndex;
+    if (to != null && from >= 0 && to !== from && to < teams.length) {
       commit(() => {
         const moved = teams[from];
         teams.splice(from, 1);
@@ -233,157 +238,205 @@ function teamDragUpdatePlaceholder(c, cx, cy) {
   section.insertBefore(c.placeholder, rows[index] || null);
 }
 
-function setupTeamDrag(handleEl, teamIndex, rowEl) {
+function setupTeamDrag(handleEl, rowEl) {
   handleEl.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
-    TeamDrag.begin(e, { teamIndex, sourceEl: rowEl }, e.pointerType !== 'mouse');
+    // 只带 id：行被复用后 dataset 里的 id 才是当前这次渲染的
+    TeamDrag.begin(e, { teamId: Number(rowEl.dataset.teamId), sourceEl: rowEl }, e.pointerType !== 'mouse');
   });
 }
 
 // ===== 渲染 =====
+// 角色池与队伍网格都走 keyed 渲染：落位后只更新变化的那几个节点，
+// 不再整池重建（61 张头像重新解码、滚动位置丢失）。
+
+function createTeamRoleItem(char) {
+  const item = document.createElement('div');
+  item.className = 'team-role-item';
+  item.dataset.charId = char.id;
+  item.innerHTML = `<img src="${getAvatar(char.name)}" alt="${char.name}" draggable="false"
+    loading="lazy" decoding="async" onerror="handleImgError(this)">`;
+
+  const nameOverlay = document.createElement('div');
+  nameOverlay.className = 'name-overlay';
+  item.appendChild(nameOverlay);
+
+  const attr = document.createElement('div');
+  attr.className = 'attr';          // 常驻、靠 display 控制（切换「显示链+武」不必重建）
+  item.appendChild(attr);
+
+  const uses = document.createElement('div');
+  uses.className = 'uses';
+  item.appendChild(uses);
+
+  // 触屏长按 >220ms 或鼠标拖动后启用；id 现取，节点复用时不会指向旧角色
+  setupPointerDrag(item, 'character', () => {
+    const id = Number(item.dataset.charId);
+    return charById.has(id) ? { id } : null;
+  });
+
+  item.addEventListener('click', () => {
+    if (suppressCharacterClick) { suppressCharacterClick = false; return; } // 拖拽激活后的 click 忽略
+    const char = charById.get(Number(item.dataset.charId));
+    if (char) addCharToFirstFreeSlot(char);
+  });
+  return item;
+}
+
+function updateTeamRoleItem(item, char) {
+  item.dataset.charId = char.id;
+  const remaining = getRemainingUses(char);
+  item.classList.toggle('not-available', remaining === 0);
+  const img = item.querySelector('img');
+  const src = getAvatar(char.name);
+  if (img.getAttribute('src') !== src) { img.src = src; img.alt = char.name; }
+  item.querySelector('.name-overlay').textContent = char.name;
+  const attr = item.querySelector('.attr');
+  attr.textContent = `${char.chain}+${char.weapon}`;
+  attr.style.display = showAttr ? '' : 'none';
+  const uses = item.querySelector('.uses');
+  uses.className = extraUseChars.has(char.id) ? 'uses yellow' : `uses ${remaining > 0 ? 'green' : 'red'}`;
+  uses.textContent = `${remaining}`;
+}
+
+// 点击角色池：放进第一支「还没有该角色、且有空格」的队伍
+function addCharToFirstFreeSlot(char) {
+  if (getRemainingUses(char) <= 0) return;
+  for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
+    const team = teams[teamIndex];
+    if (team.slots.some(slot => slot && slot.id === char.id)) continue;
+    for (let slotIndex = 0; slotIndex < team.slots.length; slotIndex++) {
+      if (team.slots[slotIndex] === null) {
+        commit(() => { team.slots[slotIndex] = { id: char.id }; }, renderTeamPage);
+        return;
+      }
+    }
+  }
+}
+
 function renderTeamRoleList() {
   const list = document.getElementById('teamRoleList');
-  list.innerHTML = '';
+  renderEpoch(list);
+  const owned = characters.filter(c => c.owned);
+  reconcile(list, owned, c => c.id, createTeamRoleItem, updateTeamRoleItem);
+}
 
-  characters.forEach((char, index) => {
-    if (!char.owned) return;
-    const remaining = getRemainingUses(char);
-    const item = document.createElement('div');
-    item.className = 'team-role-item';
-    if (remaining === 0) item.classList.add('not-available');
-    item.innerHTML = `<img src="${getAvatar(char.name)}" alt="${char.name}" draggable="false"
-      loading="lazy" decoding="async" onerror="handleImgError(this)">`;
+// 一行队伍：把手 + 队名 + 删除 + 3 个槽位。节点只建一次，之后只更新内容。
+function createTeamRow() {
+  const row = document.createElement('div');
+  row.className = 'team-row';
 
-    const nameOverlay = document.createElement('div');
-    nameOverlay.className = 'name-overlay';
-    nameOverlay.textContent = char.name;
-    item.appendChild(nameOverlay);
+  const header = document.createElement('div');
+  header.className = 'team-header';
 
-    if (showAttr) {
-      const attr = document.createElement('div');
-      attr.className = 'attr';
-      attr.textContent = `${char.chain}+${char.weapon}`;
-      item.appendChild(attr);
-    }
+  const handle = document.createElement('span');
+  handle.className = 'team-handle';
+  handle.textContent = '☰';
+  setupTeamDrag(handle, row);
 
-    const uses = document.createElement('div');
-    if (extraUseChars.includes(char.name)) uses.className = 'uses yellow';
-    else uses.className = `uses ${remaining > 0 ? 'green' : 'red'}`;
-    uses.textContent = `${remaining}`;
-    item.appendChild(uses);
+  const label = document.createElement('span');
+  label.className = 'team-label';
 
-    // 触屏长按 >220ms 或鼠标拖动后启用
-    if (remaining > 0) setupPointerDrag(item, 'character', { name: char.name });
+  header.appendChild(handle);
+  header.appendChild(label);
+  row.appendChild(header);
 
-    item.addEventListener('click', () => {
-      if (suppressCharacterClick) { suppressCharacterClick = false; return; } // 拖拽激活后的 click 忽略
-      const currentRemaining = getRemainingUses(char);
-      if (currentRemaining <= 0) return;
-      let foundSlot = false;
-      for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
-        const team = teams[teamIndex];
-        const teamHasChar = team.slots.some(slot => slot && slot.name === char.name);
-        if (teamHasChar) continue;
-        for (let slotIndex = 0; slotIndex < team.slots.length; slotIndex++) {
-          if (team.slots[slotIndex] === null) {
-            team.slots[slotIndex] = { name: char.name };
-            foundSlot = true;
-            break;
-          }
-        }
-        if (foundSlot) break;
-      }
-      if (foundSlot) commit(null, renderTeamPage);
-    });
-
-    list.appendChild(item);
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'delete-team-btn';
+  del.textContent = '×';
+  del.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (teams.length <= 1) return; // 至少保留 1 支队伍（与布局的不变量一致）
+    const teamId = Number(row.dataset.teamId);
+    commit(() => { teams.splice(teams.findIndex(t => t.id === teamId), 1); }, renderTeamPage);
   });
+  row.appendChild(del);
+
+  const slots = document.createElement('div');
+  slots.className = 'team-slots';
+  for (let i = 0; i < 3; i++) {
+    const slotDiv = document.createElement('div');
+    slotDiv.className = 'slot';
+    // 有角色的槽位才是拖源：源数据在按下时从 dataset 现取（行会被复用/调序）
+    slotDiv.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (!slotDiv.dataset.charId) return;
+      const [t, s] = slotDiv.dataset.index.split(',').map(Number);
+      suppressCharacterClick = false;
+      PointerDrag.begin(e, { type: 'slot', source: { index: [t, s] } }, e.pointerType !== 'mouse');
+    });
+    slots.appendChild(slotDiv);
+  }
+  row.appendChild(slots);
+  return row;
+}
+
+// 只在槽位里的角色变化时重建内部节点（img / 角标 / 删除按钮），其余情况只改文字
+function updateTeamSlot(slotDiv, teamIndex, slotIndex, slot) {
+  slotDiv.dataset.index = `${teamIndex},${slotIndex}`;
+  // 槽位只存角色 id：名字与链/武都在角色表里查（换译名不会影响队伍）
+  const char = slot ? charById.get(slot.id) : null;
+  const key = char ? String(char.id) : '';
+  if (slotDiv.dataset.charId === key) {
+    if (char) {
+      const attr = slotDiv.querySelector('.attr');
+      if (attr) {
+        attr.textContent = `${char.chain}+${char.weapon}`;
+        attr.style.display = showAttr ? '' : 'none';
+      }
+    }
+    return;
+  }
+  slotDiv.dataset.charId = key;
+  Array.from(slotDiv.children).forEach(n => n.remove());
+  if (!char) return;
+
+  const img = document.createElement('img');
+  img.src = getAvatar(char.name);
+  img.alt = char.name;
+  img.draggable = false;
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.onerror = function () { handleImgError(this); };
+  slotDiv.appendChild(img);
+
+  const attr = document.createElement('div');
+  attr.className = 'attr';
+  attr.textContent = `${char.chain}+${char.weapon}`;
+  attr.style.display = showAttr ? '' : 'none';
+  slotDiv.appendChild(attr);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'delete-btn';
+  deleteBtn.textContent = '×';
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // 下标现取：队伍顺序可能已经变过
+    const [t, s] = slotDiv.dataset.index.split(',').map(Number);
+    const team = teams[t];
+    if (team) commit(() => { team.slots[s] = null; }, renderTeamPage);
+  });
+  slotDiv.appendChild(deleteBtn);
+}
+
+function updateTeamRow(row, team) {
+  const teamIndex = teams.indexOf(team);
+  row.dataset.teamId = team.id;
+  row.querySelector('.team-label').textContent = `队伍${teamIndex + 1}`;
+  const slotDivs = row.querySelectorAll('.slot');
+  for (let i = 0; i < slotDivs.length; i++) {
+    updateTeamSlot(slotDivs[i], teamIndex, i, team.slots[i] || null);
+  }
 }
 
 // 渲染队伍
 function renderTeams() {
   const section = document.getElementById('teamSection');
-  section.innerHTML = '';
-
-  teams.forEach((team, teamIndex) => {
-    const row = document.createElement('div');
-    row.className = 'team-row';
-
-    const teamHeader = document.createElement('div');
-    teamHeader.className = 'team-header';
-
-    const handle = document.createElement('span');
-    handle.className = 'team-handle';
-    handle.textContent = '☰';
-    setupTeamDrag(handle, teamIndex, row);
-
-    const label = document.createElement('span');
-    label.className = 'team-label';
-    label.textContent = `队伍${teamIndex + 1}`;
-
-    teamHeader.appendChild(handle);
-    teamHeader.appendChild(label);
-
-    const deleteTeamBtn = document.createElement('button');
-    deleteTeamBtn.type = 'button';
-    deleteTeamBtn.className = 'delete-team-btn';
-    deleteTeamBtn.textContent = '×';
-    deleteTeamBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (teams.length <= 1) return; // 至少保留 1 支队伍（与布局的不变量一致）
-      commit(() => { teams.splice(teamIndex, 1); }, renderTeamPage);
-    });
-    row.appendChild(deleteTeamBtn);
-
-    const slotsDiv = document.createElement('div');
-    slotsDiv.className = 'team-slots';
-
-    team.slots.forEach((slot, slotIndex) => {
-      const slotDiv = document.createElement('div');
-      slotDiv.className = 'slot';
-      slotDiv.dataset.index = `${teamIndex},${slotIndex}`;
-
-      if (slot) {
-        const img = document.createElement('img');
-        img.src = getAvatar(slot.name);
-        img.alt = slot.name;
-        img.draggable = false;
-        img.loading = 'lazy';
-        img.decoding = 'async';
-        img.onerror = function () { handleImgError(this); };
-        slotDiv.appendChild(img);
-
-        const char = charByName.get(slot.name);
-        if (char && showAttr) {
-          const attr = document.createElement('div');
-          attr.className = 'attr';
-          attr.textContent = `${char.chain}+${char.weapon}`;
-          slotDiv.appendChild(attr);
-        }
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = '×';
-        deleteBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          commit(() => { team.slots[slotIndex] = null; }, renderTeamPage);
-        });
-        slotDiv.appendChild(deleteBtn);
-
-        // 有角色槽位作为拖源（可换位/搬走）
-        setupPointerDrag(slotDiv, 'slot', { index: [teamIndex, slotIndex] });
-      }
-
-      slotsDiv.appendChild(slotDiv);
-    });
-
-    row.appendChild(teamHeader);
-    row.appendChild(slotsDiv);
-
-    section.appendChild(row);
-  });
+  renderEpoch(section);
+  reconcile(section, teams, t => t.id, createTeamRow, updateTeamRow);
 
   // 添加队伍按钮（放到底部工具行）
   const addTeamBtn = document.createElement('button');

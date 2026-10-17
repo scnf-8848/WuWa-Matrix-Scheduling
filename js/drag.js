@@ -92,14 +92,17 @@ function createDrag(opt) {
     if (c.isTouch) window.removeEventListener('touchmove', c._noScrollB, { passive: false });
   }
 
-  function cleanup() {
+  // keepPayload：松手时「先清理再落位」的落位钩子仍可能需要读 c.payload
+  // （页面3 的 bossDragInfo 就要靠它区分 new-team / move），故此时延后到落位之后再置空。
+  function cleanup(keepPayload) {
     unbind();
     if (c.holdTimer) { clearTimeout(c.holdTimer); c.holdTimer = null; }
     document.body.classList.remove(o.bodyClass);
     if (c.ghost) { c.ghost.remove(); c.ghost = null; }
     if (c.sourceEl) c.sourceEl.classList.remove('drag-sourcing');
     if (o.onCleanup) o.onCleanup(c);
-    c.pointerId = null; c.payload = null; c.sourceEl = null; c.activated = false;
+    c.pointerId = null; c.sourceEl = null; c.activated = false;
+    if (!keepPayload) c.payload = null;
   }
 
   function activate(x, y) {
@@ -137,8 +140,9 @@ function createDrag(opt) {
     const payload = c.payload;
     const x = e.clientX, y = e.clientY;
     if (o.onBeforeEnd) o.onBeforeEnd(c); // 拉伸：把 rAF 里最后一帧落位
-    cleanup();
+    cleanup(true);                        // 保留 c.payload：落位钩子可能还要读它
     if (activated && o.onEnd) o.onEnd(c, payload, x, y);
+    c.payload = null;                     // 落位结束后才真正清空
     // 注意：清理时不要重置调用方自己的字段（如 BossDrag 的 reuseRound / TeamDrag 的 targetIndex）。
     // 松手流程是「先清理再落位」，提前清空会让落位判断读到空值；各 begin 开头都会重新赋值。
   }
