@@ -257,9 +257,10 @@ function loadUser(uid) {
 }
 
 // 状态不变量：所有交互改完数据后都走这里再落盘。
-// 不变量只有两类：队伍槽位形状/id 补齐；槽位里不得出现「未持有 / 模板中已不存在」的角色。
-// 后者以前散在 setCharOwned、「全部没有」、toggleExtraUse、importStateToUser 四处，
-// 加第五条写入路径时极容易漏 —— 现在统一在这里兜底（import 走 pruneInvalidSlots，见下）。
+// 不变量有三类：队伍槽位形状/id 补齐；槽位里不得出现「未持有 / 模板中已不存在」的角色；
+// 页面3 的块必须引用「还有角色的队伍」。
+// 前两条曾散在 setCharOwned、「全部没有」、toggleExtraUse、importStateToUser 四处，
+// 加第五条写入路径时极容易漏 —— 现在统一在这里兜底（import 路径显式复用同名纯函数，见下）。
 function pruneInvalidSlots(list, isUsable) {
   (Array.isArray(list) ? list : []).forEach(t => {
     if (!t || !Array.isArray(t.slots)) return;
@@ -269,6 +270,39 @@ function pruneInvalidSlots(list, isUsable) {
     }
   });
 }
+
+// 页面3 的块必须引用「还有角色的队伍」。
+// 场景：把队伍拖上轨道后，回页面1 把该队角色逐个标为未持有 → 槽位被清空，队伍本身还在，
+// 于是块照着队伍渲染：没有头像、分数 0，却仍占着轨道上的一段位置（还会把别的队伍挡在外面），
+// 看上去就像一块渲染残骸。这种块没有任何意义，直接丢掉。
+// 队伍被整个删除的块不在此列：那种情况要保留并渲染成「队伍已失效」占位，由用户决定去留
+// （见 pruneContinuations 的同款判断）。
+// 纯函数：只改传入的 page，返回删掉的块数。
+function pruneEmptyTeamBlocks(page, list) {
+  const rounds = page && Array.isArray(page.rounds) ? page.rounds : null;
+  if (!rounds) return 0;
+  const hasChar = new Map();
+  (Array.isArray(list) ? list : []).forEach(t => {
+    if (!t || t.id == null) return;
+    hasChar.set(t.id, !!(Array.isArray(t.slots) && t.slots.some(s => s && s.id)));
+  });
+  let removed = 0;
+  for (let r = 0; r < rounds.length; r++) {
+    const round = rounds[r];
+    if (!Array.isArray(round)) continue;
+    const kept = round.filter(p => {
+      const id = p && p.teamId;
+      if (!hasChar.has(id)) return true; // 队伍不存在 → 保留为「队伍已失效」
+      return hasChar.get(id);
+    });
+    if (kept.length !== round.length) {
+      removed += round.length - kept.length;
+      rounds[r] = kept;
+    }
+  }
+  return removed;
+}
+
 function normalizeState() {
   teams.forEach(t => { if (!Array.isArray(t.slots)) t.slots = [null, null, null]; });
   // 没有角色时不做删除：否则「还没载入用户」的瞬间会把整份槽位清空
@@ -279,6 +313,10 @@ function normalizeState() {
     });
   }
   ensureTeamIds();
+  // 槽位清空后再判定页面3 的块：被清空的队伍已经没有可显示的内容
+  pruneEmptyTeamBlocks(bossPage, teams);
+  // 上一步可能删掉了某条续接链的支撑块，级联清理随之失效的后续块（幂等）
+  pruneContinuations();
 }
 
 function persistUserData() {
@@ -337,6 +375,8 @@ function importStateToUser(uid, code) {
   // 槽位里不能留下「新状态中未持有」的角色：否则页面2/3 仍会显示它（头像照画、分数照算），
   // 而角色池里已经没有它，用户无法用任何正常操作清掉。与 normalizeState 共用同一条规则。
   pruneInvalidSlots(d.teams, id => !!(charData[id] && charData[id].owned));
+  // 同一份数据里的页面3 排布也要跟着收缩：队伍被清空的块不能再留着（见 pruneEmptyTeamBlocks）
+  pruneEmptyTeamBlocks(d.bossPage, d.teams);
   if (!writeStore(`userData_${uid}`, JSON.stringify({
     v: SCHEMA_VERSION,
     charData: d.charData,
