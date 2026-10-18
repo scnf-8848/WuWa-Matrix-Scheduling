@@ -28,10 +28,10 @@ const SCORE_UNIT = 50;          // 显示取整单位（分数只需大致示意
 const BOSS5_KILL_BONUS = 1000;  // 击杀「矩阵奇藏」的额外分（每轮 1 个，与自身基础分相互独立）
 
 // 某轮某 BOSS 列的满血分数（超出已知轮次时沿用最后一轮）。
-// 第 5 列「矩阵奇藏」= 自身基础分 + 击杀奖励，两个机制独立；奖励同样沿血条线性平摊到整条血条。
+// 注意：**不含**第 5 列的击杀奖励 —— 那 1000 分不是血量分，不随血条平摊（见 bossKiller）。
 function bossColScore(rIndex, col) {
   const row = BOSS_ROUND_SCORES[Math.min(rIndex, BOSS_ROUND_SCORES.length - 1)];
-  return row[col] + (col === BOSS_COLS - 1 ? BOSS5_KILL_BONUS : 0);
+  return row[col];
 }
 
 // 单个队伍块在某轮的分数 = 覆盖各 BOSS 列的比例 × 该列分数。
@@ -46,6 +46,25 @@ function bossBlockScore(rIndex, p) {
   return sum;
 }
 
+// ===== 击杀奖励（每轮第 5 列「矩阵奇藏」）=====
+// 这笔 1000 分不是血量分，不该随血条平摊：它归「打掉最后一滴血」的那支队伍。
+//   ① 本轮有块精确贴住右端（x + w = 1）→ 该块所属队伍击杀。
+//   ② 本轮右端留有空隙、而下一轮最左的队伍贴住左端（autoTail 生效）→ 那段空隙本来就是我方
+//      从下一轮延续回来的输出，等价于它一路打到了终点 → 同样算它击杀。
+//   ③ 其余情况（右端有空隙且无人续接）→ 最后一点血没被打掉，这笔分【无人获得】。
+// ①②互斥：autoTail 在「最右块贴到 1」时直接返回 null，反之贴右时右端空隙为 0。
+// 返回击杀者 teamId，或 null（autoTail 已校验来源队伍存在，孤儿队伍的块不会拿到奖励）。
+function bossKiller(roundIdx) {
+  const rounds = (bossPage && bossPage.rounds) || [];
+  const round = rounds[roundIdx];
+  if (!round || !round.length) return null;
+  let a = null; // 理论上只有一个块能贴右（同轮块不重叠），取最靠右者以防脏数据
+  round.forEach(p => { if (isEdgeRight(p) && (!a || p.x + p.w > a.x + a.w)) a = p; });
+  if (a) return getTeamById(a.teamId) ? a.teamId : null;
+  const tail = autoTail(roundIdx);
+  return (tail && !tail.off) ? tail.teamId : null;
+}
+
 // 同一队伍跨轮次出现 → 各块分数相加；该队伍的所有队伍块显示同一个合计值
 function bossTeamScore(teamId) {
   const team = getTeamById(teamId);
@@ -57,6 +76,8 @@ function bossTeamScore(teamId) {
   let total = 0;
   rounds.forEach((round, rIndex) => {
     round.forEach(p => { if (p.teamId === teamId) total += bossBlockScore(rIndex, p); });
+    // 击杀奖励整笔归最后一击的队伍，不参与血量平摊（见 bossKiller）
+    if (bossKiller(rIndex) === teamId) total += BOSS5_KILL_BONUS;
     // 生效中的自动续接占位同样计入（该队伍本轮可能没有实体块）
     const auto = autoContinuation(rIndex);
     if (auto && !auto.off && auto.teamId === teamId) total += bossBlockScore(rIndex, { x: 0, w: auto.w });
