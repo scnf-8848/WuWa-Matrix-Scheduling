@@ -65,13 +65,18 @@ function bossKiller(roundIdx) {
   return (tail && !tail.off) ? tail.teamId : null;
 }
 
+// 队伍能否打出伤害：队伍已删除（页面3 显示为「队伍已失效」）或三个人位全空 → 既不算分、也不出明细。
+// 空队伍块只可能来自「先拖到页面3，之后在页面2 把该队清空」，不是设计出来的状态；
+// 若不判空，块上会一直显示分数、总分也照算，用户会以为「已经没人的队还在打」。
+// bossTeamScore 与 bossTeamBreakdown 共用这一条判据，避免「明细有行、总分却为 0」。
+function teamHasFighters(teamId) {
+  const team = getTeamById(teamId);
+  return !!(team && Array.isArray(team.slots) && team.slots.some(s => s));
+}
+
 // 同一队伍跨轮次出现 → 各块分数相加；该队伍的所有队伍块显示同一个合计值
 function bossTeamScore(teamId) {
-  const team = getTeamById(teamId);
-  // 队伍已删除（页面3 显示为「队伍已失效」）或三个人位全空 → 打不出伤害。
-  // 空队伍块只可能来自「先拖到页面3，之后在页面2 把该队清空」，不是设计出来的状态；
-  // 若不判空，块上会一直显示分数、总分也照算，用户会以为「已经没人的队还在打」。
-  if (!team || !Array.isArray(team.slots) || !team.slots.some(s => s)) return 0;
+  if (!teamHasFighters(teamId)) return 0;
   const rounds = (bossPage && bossPage.rounds) || [];
   let total = 0;
   rounds.forEach((round, rIndex) => {
@@ -94,6 +99,54 @@ function bossTotalScore() {
   let total = 0;
   (teams || []).forEach(t => { total += bossTeamScore(t.id); });
   return total;
+}
+
+// ===== 队伍得分明细（块的悬停说明用）=====
+// 逐轮、逐列列出该队打到的每个 BOSS：名称、占该 BOSS 血条的百分比、对应的血量分。
+// 与 bossTeamScore 严格同源：实体块、生效中的自动续接占位都会出现在明细里，
+// 击杀奖励单独标在「矩阵奇藏」那一行（且不计入该行分数 —— 它本来就不是血量分）。
+// 跨轮次时同名 BOSS 会重复出现（一个队跨三轮就是 3 组「五个 BOSS」），
+// 这是有意的：每轮 BOSS 是各自独立的血条，合并成 200% 反而看不出打了几轮。
+// 注意 pct / score 各自取整到 SCORE_UNIT，所以各行相加可能与块上显示的总分差几十。
+function bossTeamBreakdown(teamId) {
+  if (!teamHasFighters(teamId)) return [];
+  const rounds = (bossPage && bossPage.rounds) || [];
+  const names = (bossPage && bossPage.bossNames) || BOSS_DEF_NAMES;
+  const colW = 1 / BOSS_COLS;
+  const rows = [];
+  rounds.forEach((round, rIndex) => {
+    // 该队本轮占据的区间：优先实体块，没有再看自动续接占位（两者互斥，见 autoContinuation）
+    let seg = null;
+    const p = round.find(q => q.teamId === teamId);
+    if (p) {
+      seg = { x: p.x, w: p.w };
+    } else {
+      const head = autoContinuation(rIndex);
+      if (head && !head.off && head.teamId === teamId) seg = { x: 0, w: head.w };
+      else {
+        const tail = autoTail(rIndex);
+        if (tail && !tail.off && tail.teamId === teamId) seg = { x: 1 - tail.w, w: tail.w };
+      }
+    }
+    if (!seg) return;
+    const kill = bossKiller(rIndex) === teamId;
+    for (let c = 0; c < BOSS_COLS; c++) {
+      const ov = Math.min(seg.x + seg.w, (c + 1) * colW) - Math.max(seg.x, c * colW);
+      if (ov <= 1e-9) continue;
+      const frac = Math.min(1, ov / colW);
+      const pct = Math.round(frac * 100);
+      if (pct <= 0) continue; // 不到 1% 的边缘重叠不占一行（那点分数会体现在总分里）
+      rows.push({
+        rIndex,
+        col: c,
+        name: names[c] || BOSS_DEF_NAMES[c],
+        pct,
+        score: Math.round(frac * bossColScore(rIndex, c) / SCORE_UNIT) * SCORE_UNIT,
+        kill: kill && c === BOSS_COLS - 1,
+      });
+    }
+  });
+  return rows;
 }
 
 // ===== 自动续接占位 =====
@@ -142,7 +195,9 @@ function autoTail(roundIdx) {
   return { teamId: b1.teamId, w: 1 - rightmost, off };
 }
 
-// 自动续接占位小于此宽度时不绘制（仍照常计分）：细到难以辨识，改由 ∝ 链接符号表达其存在
+// 自动续接占位小于此宽度时不绘制（仍照常计分）。
+// 0.01 = 列宽的 5%。刻意不再放宽：更窄时占位块的虚线描边会盖住相邻实体块的左侧拉伸手柄，
+// 视觉和操作都受干扰；这类极细的缝改由 ∝ 续接符号表示存在 —— 分数与明细照算，只是不画块。
 const AUTO_MIN_RENDER = 0.01;
 
 // ===== 队伍使用限制 =====
