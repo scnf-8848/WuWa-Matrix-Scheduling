@@ -480,9 +480,13 @@ function bossBlockTitle(teamId) {
 }
 
 // 新一轮
-document.getElementById('addRoundBtn').addEventListener('click', () => {
-  if (meta.currentUid == null) return;
-  commit(() => { bossPage.rounds.push([]); }, renderBossPage);
+// 桌面端按钮在面板底部，竖屏时同一动作由顶栏那枚承担（styles.css 里二者互斥显示），
+// 因此按 class 统一绑定，不依赖某一个 id。
+document.querySelectorAll('.add-round-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (meta.currentUid == null) return;
+    commit(() => { bossPage.rounds.push([]); }, renderBossPage);
+  });
 });
 
 // ================= 页面3 拖拽 =================

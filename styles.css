@@ -1193,6 +1193,9 @@ body.pointer-dragging .boss-team:hover { border-color: #333; }
   font-weight: 600;
 }
 .add-round-btn:hover { background: #22c55e; }
+/* 顶栏里的「新一轮」只在竖屏出现：桌面端按钮仍在底部居中，竖屏把它收进顶栏左侧，
+   省掉底部那条只放一个按钮的横条，轨道区因此多出约 40px 高度 */
+.add-round-btn-top { display: none; }
 
 /* 拖拽幽灵内不显示按钮 */
 .drag-ghost .placement-del,
@@ -1210,6 +1213,16 @@ body.pointer-dragging .boss-team:hover { border-color: #333; }
   #bossPage { --bp-inset-bottom: 0px; }   /* 竖屏不留下边距 */
   #bossPage .left-panel { flex: none; max-height: var(--bp-left-max-h); }
   #bossPage .right-panel { flex: 1; min-height: 0; }
+  /* 竖屏：底部的「新一轮」横条整条去掉，按钮改由顶栏那一枚承担（见 .add-round-btn-top）。
+     省下来的高度直接给轨道区，三轮的行高跟着变高。 */
+  #bossPage .boss-footer { display: none; }
+  #bossPage .add-round-btn-top {
+    display: inline-block;
+    margin-right: auto; /* 顶栏其余内容仍靠右，按钮独占左上角 */
+    padding: 4px 10px;  /* 比桌面端小一号：这一行本身也要省高度，否则等于把底部的 40px 挪到顶部 */
+    font-size: 12px;
+  }
+  #bossPage .boss-topbar { margin-bottom: 4px; }
   /* 轨道行高交给 CSS 均分：每轮 = max(最小高度, (轨道区高 − 轮间距×2) ÷ 3)，
      即“3 轮正好占满轨道区”，超过 3 轮时各行保持该高度、由轨道区自身滚动。
      JS 不再重复这段除法，只量取实际渲染的行高来定头像尺寸。 */
