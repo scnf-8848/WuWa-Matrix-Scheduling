@@ -466,7 +466,7 @@ function updatePlacement(el, item) {
 }
 
 // 块的悬停说明：每个 BOSS 一行 ——「名称：占比%：该部分血量分」，收尾的那一轮在矩阵奇藏行尾
-// 追加「额外击杀奖励 +1000分」（该行分数里不含这 1000，两笔账分开看）。
+// 追加「+ 1000（击杀奖励）」（该行分数里不含这 1000，两笔账分开看）。
 // 跨轮次时同名 BOSS 会依次重复出现，不做合并（见 bossTeamBreakdown）。
 function bossBlockTitle(teamId) {
   if (!getTeamById(teamId)) {
@@ -476,7 +476,7 @@ function bossBlockTitle(teamId) {
   const rows = bossTeamBreakdown(teamId);
   if (!rows.length) return '该队伍还没有分到任何 BOSS 血量。';
   return rows.map(r => `${r.name}：${r.pct}%：${r.score}`
-    + (r.kill ? `，额外击杀奖励 +${BOSS5_KILL_BONUS}分` : '')).join('\n');
+    + (r.kill ? ` + ${BOSS5_KILL_BONUS}（击杀奖励）` : '')).join('\n');
 }
 
 // 新一轮
