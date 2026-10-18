@@ -440,13 +440,29 @@ function updatePlacement(el, item) {
   const sig = placementSignature(p);
   if (el._sig !== sig) {
     buildPlacementContents(el, p, orphan, cont, contTail);
-    el.title = orphan
-      ? `该块引用的队伍（id ${p.teamId}）在页面2 已被删除，排布数据已保留。可拖动调整位置，点 ✕ 移除。`
-      : '';
     el._sig = sig;
   }
+  // 悬停说明按「队伍」维度写（块上显示的本就是队伍合计分），且每次更新都要重算：
+  // 同一块挪了轮次后，它的队伍是否仍收尾击杀是会变的，不能跟着 sig 缓存。
+  el.title = orphan
+    ? `该块引用的队伍（id ${p.teamId}）在页面2 已被删除，排布数据已保留。可拖动调整位置，点 ✕ 移除。`
+    : killTitle(p.teamId);
   const score = el.querySelector('.placement-score');
   if (score) score.textContent = orphan ? '—' : bossTeamScore(p.teamId);
+}
+
+// 该队在哪几轮收尾击杀第 5 个 BOSS（块的悬停说明用）
+function killRoundsOf(teamId) {
+  const out = [];
+  ((bossPage && bossPage.rounds) || []).forEach((_, r) => { if (bossKiller(r) === teamId) out.push(r); });
+  return out;
+}
+function killTitle(teamId) {
+  const rs = killRoundsOf(teamId);
+  if (!rs.length) return '';
+  const name = (bossPage.bossNames || [])[BOSS_COLS - 1] || '矩阵奇藏';
+  return `收尾击杀「${name}」${rs.length} 次（第 ${rs.map(r => r + 1).join('、')} 轮），`
+    + `分数含击杀奖励 +${rs.length * BOSS5_KILL_BONUS}`;
 }
 
 // 新一轮
