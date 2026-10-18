@@ -24,9 +24,7 @@ function buildAutoPlaceholder(auto, roundIdx, align) {
   el.dataset.autoRound = roundIdx;
   el.style.left = tail ? `${(1 - auto.w) * 100}%` : '0%';
   el.style.width = `${auto.w * 100}%`;
-  el.title = auto.off
-    ? '自动续接占位（当前不生效，点击启用）'
-    : '自动续接占位（当前生效，点击停用）';
+  el.title = autoPlaceholderTitle(bossBlockTitle(auto.teamId), auto.off);
 
   const score = document.createElement('div');
   score.className = 'placement-score';
@@ -36,6 +34,15 @@ function buildAutoPlaceholder(auto, roundIdx, align) {
   el.addEventListener('pointerdown', (e) => e.stopPropagation()); // 不触发轨道拖拽/落位
   el.addEventListener('click', (e) => { e.stopPropagation(); toggleAutoContinuation(roundIdx, tail); });
   return el;
+}
+
+// 自动占位块的悬停说明：第一行是交互提示（点击启停），启用时再接下该队的得分明细。
+// 占位块上显示的同样是队伍总分，不给明细就等于有一块分数解释不了；
+// 但点成「不生效」后这段本来就不计分，明细再挂着只会让人以为它还在算，所以只留交互提示。
+// （「占比很小的一段输出」正是靠占位表达的：实体块最小 BOSS_MIN_W，更细的段落由占位承接。）
+function autoPlaceholderTitle(detail, off) {
+  const head = off ? '自动续接占位（当前不生效，点击启用）' : '自动续接占位（当前生效，点击停用）';
+  return (off || !detail) ? head : `${head}\n${detail}`;
 }
 
 // 续接链接 i−1 ↔ i：来源为「实体续接块」或「自动占位块」。返回 { enabled, auto, tail } 或 null。
@@ -131,9 +138,13 @@ function syncAutoPlaceholder(roundIdx) {
 // 刷新一批队伍在全部轮次中所有块的分数显示（拖拽/拉伸时高频调用）。
 // 只扫一遍 DOM、每支队伍只求值一次 —— 原来是「每支队伍各扫一遍 #bossTracks」，
 // 指针移动时是 O(队伍数 × 块数) 的 DOM 遍历，长轨道上会有明显拖影。
+// 悬停说明同理：它按队伍算（占比/分数/击杀归属都依赖当前几何），同一队伍只拼一次。
+// 拉伸期间 DOM 只改 style 不重绘（onEnd 里 render=false），所以这里必须一并刷新 title，
+// 否则拖完手柄后说明还停在拉伸前的内容，得再挪一下块或刷新页面才对。
 function refreshTeamScores(teamIds) {
   const want = new Set(teamIds);
   const shown = new Map();
+  const tips = new Map();
   document.querySelectorAll('#bossTracks .placement').forEach(el => {
     const id = Number(el.dataset.teamId);
     if (!want.has(id)) return;
@@ -141,9 +152,14 @@ function refreshTeamScores(teamIds) {
       // 队伍已被删除的块首渲染显示「—」；这里保持一致，否则一次拖拽就会把「—」覆盖成
       // 一个看似正常的数字，而总分（只累加现存队伍）并不含它 —— 两处口径不同，更像是在算错分。
       shown.set(id, getTeamById(id) ? bossTeamScore(id) : '—');
+      tips.set(id, bossBlockTitle(id));
     }
     const s = el.querySelector('.placement-score');
     if (s) s.textContent = shown.get(id);
+    // 自动占位块保留第一行的「点击启停」提示，明细接在后面
+    el.title = el.classList.contains('placement-auto')
+      ? autoPlaceholderTitle(tips.get(id), el.classList.contains('placement-auto-off'))
+      : tips.get(id);
   });
   refreshTotalScore();
 }
@@ -443,26 +459,24 @@ function updatePlacement(el, item) {
     el._sig = sig;
   }
   // 悬停说明按「队伍」维度写（块上显示的本就是队伍合计分），且每次更新都要重算：
-  // 同一块挪了轮次后，它的队伍是否仍收尾击杀是会变的，不能跟着 sig 缓存。
-  el.title = orphan
-    ? `该块引用的队伍（id ${p.teamId}）在页面2 已被删除，排布数据已保留。可拖动调整位置，点 ✕ 移除。`
-    : killTitle(p.teamId);
+  // 同一块挪了轮次后，它的输出区间与击杀归属都会变，不能跟着 sig 缓存。
+  el.title = bossBlockTitle(p.teamId);
   const score = el.querySelector('.placement-score');
   if (score) score.textContent = orphan ? '—' : bossTeamScore(p.teamId);
 }
 
-// 该队在哪几轮收尾击杀第 5 个 BOSS（块的悬停说明用）
-function killRoundsOf(teamId) {
-  const out = [];
-  ((bossPage && bossPage.rounds) || []).forEach((_, r) => { if (bossKiller(r) === teamId) out.push(r); });
-  return out;
-}
-function killTitle(teamId) {
-  const rs = killRoundsOf(teamId);
-  if (!rs.length) return '';
-  const name = (bossPage.bossNames || [])[BOSS_COLS - 1] || '矩阵奇藏';
-  return `收尾击杀「${name}」${rs.length} 次（第 ${rs.map(r => r + 1).join('、')} 轮），`
-    + `分数含击杀奖励 +${rs.length * BOSS5_KILL_BONUS}`;
+// 块的悬停说明：每个 BOSS 一行 ——「名称：占比%：该部分血量分」，收尾的那一轮在矩阵奇藏行尾
+// 追加「额外击杀奖励 +1000分」（该行分数里不含这 1000，两笔账分开看）。
+// 跨轮次时同名 BOSS 会依次重复出现，不做合并（见 bossTeamBreakdown）。
+function bossBlockTitle(teamId) {
+  if (!getTeamById(teamId)) {
+    return `该块引用的队伍（id ${teamId}）在页面2 已被删除，排布数据已保留。可拖动调整位置，点 ✕ 移除。`;
+  }
+  if (!teamHasFighters(teamId)) return '该队伍里没有角色，不计分。';
+  const rows = bossTeamBreakdown(teamId);
+  if (!rows.length) return '该队伍还没有分到任何 BOSS 血量。';
+  return rows.map(r => `${r.name}：${r.pct}%：${r.score}`
+    + (r.kill ? `，额外击杀奖励 +${BOSS5_KILL_BONUS}分` : '')).join('\n');
 }
 
 // 新一轮
