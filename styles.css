@@ -352,7 +352,10 @@ input:checked + .toggle-slider:before {
 .team-role-item.not-available { opacity:.4; cursor:not-allowed; }
 .role-detail { text-align:center; background:#2a2a2a; padding:20px; border-radius:10px; }
 .role-detail img { width:150px; height:150px; margin-bottom:20px; }
-.team-section { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-auto-flow:column; gap:10px 20px; padding:10px 0 0; flex:1 1 0%; min-height:0; overflow:hidden; align-content:start; }
+/* 顶部不加内边距：左面板的角色卡片是「面板 padding 20px」直接贴上去的（.role-list-container 外框顶边 = 20），
+   这里若再留 10px，队伍块顶边就比左边的卡片低一截，两栏上缘对不齐（用户指出的问题）。
+   面板自身的 20px 已经给了足够留白。 */
+.team-section { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-auto-flow:column; gap:10px 20px; padding:0; flex:1 1 0%; min-height:0; overflow:hidden; align-content:start; }
 .team-section .team-row { min-width:0; min-height:0; flex-wrap:nowrap; }
 .team-section .team-slots { flex-wrap:nowrap; }
 /* 队伍过多、两列都放不下可读尺寸时（JS 判定）：保住最小行高，纵向滚动而非压缩 */
