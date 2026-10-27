@@ -10,6 +10,14 @@ html {
   color-scheme: dark;
 }
 
+/* 「卡片」圆角全站唯一来源：页面1 左右面板的卡片、页面2 的队伍块、页面3 的队伍块/轨道都用它。
+   曾经是「左卡 5px / 右卡 10px / 队伍块 5px / 页面3 6px」四个值并存：
+   同一屏左右不对称，切页时圆角还会突变。取 6px 是因为页面3 的队伍块与轨道本来就是这个值，
+   统一后三页的队伍块圆角完全一致；要整体调软/调硬，只改这一处。 */
+:root {
+  --radius-card: 6px;
+}
+
 /* 固定页面高度，禁止整体滚动：仅内部面板（如编队区域）可上下滚动 */
 html,
 body {
@@ -158,7 +166,7 @@ input:checked + .toggle-slider:before {
 .left-panel { -ms-overflow-style: none; scrollbar-width: none; }
 .role-list-container {
   border: 1px solid #333;
-  border-radius: 5px;
+  border-radius: var(--radius-card);
   padding: 10px;
   background: #2a2a2a;
   margin-bottom: 0;
@@ -211,7 +219,7 @@ input:checked + .toggle-slider:before {
 .role-section {
   margin-bottom: 30px;
   border: 1px solid #333;
-  border-radius: 5px;
+  border-radius: var(--radius-card);
   padding: 15px;
   background: #2a2a2a;
 }
@@ -350,7 +358,7 @@ input:checked + .toggle-slider:before {
 .uses.red { background:#dc2626; }
 .uses.yellow { background:#eab308; }
 .team-role-item.not-available { opacity:.4; cursor:not-allowed; }
-.role-detail { text-align:center; background:#2a2a2a; padding:20px; border-radius:10px; }
+.role-detail { text-align:center; background:#2a2a2a; padding:20px; border-radius:var(--radius-card); }
 .role-detail img { width:150px; height:150px; margin-bottom:20px; }
 /* 顶部不加内边距：左面板的角色卡片是「面板 padding 20px」直接贴上去的（.role-list-container 外框顶边 = 20），
    这里若再留 10px，队伍块顶边就比左边的卡片低一截，两栏上缘对不齐（用户指出的问题）。
@@ -360,7 +368,7 @@ input:checked + .toggle-slider:before {
 .team-section .team-slots { flex-wrap:nowrap; }
 /* 队伍过多、两列都放不下可读尺寸时（JS 判定）：保住最小行高，纵向滚动而非压缩 */
 .team-section.team-scroll { overflow-y: auto; overflow-x: hidden; }
-.team-row { position:relative; display:flex; align-items:center; gap:10px; background:#2a2a2a; padding:var(--row-pad-v,10px) 10px var(--row-pad-v,10px) 8px; border-radius:5px; min-height:60px; transition:transform .2s,opacity .2s; flex-wrap: wrap; }
+.team-row { position:relative; display:flex; align-items:center; gap:10px; background:#2a2a2a; padding:var(--row-pad-v,10px) 10px var(--row-pad-v,10px) 8px; border-radius:var(--radius-card); min-height:60px; transition:transform .2s,opacity .2s; flex-wrap: wrap; }
 
 /* 底部工具行：容纳“添加队伍”按钮 */
 .team-footer { position:relative; display:flex; justify-content:center; align-items:center; flex-shrink:0; margin-top:10px; }
@@ -992,7 +1000,7 @@ body.us-collapsed #sidebarExpand { display: flex; }
   align-items: center;
   background: #2a2a2a;
   border: var(--bp-team-border) solid #333;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   padding: var(--bp-team-pad);
   cursor: grab;
   /* 同 .placement：轻扫=滚动面板，长按才拖拽；这样队伍块本身也成为可滚动区域 */
@@ -1088,7 +1096,7 @@ body.us-collapsed #sidebarExpand { display: flex; }
   gap: 4px;
   background: #1e1e1e;
   border: var(--bp-track-border) solid #333;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   /* 左侧留出竖排轮次标签位、右侧留出删除按钮位：两者定宽，各轮画布等宽、列对齐；不占高度 */
   padding: var(--bp-track-pad-top) 22px var(--bp-track-pad-bottom) var(--bp-track-pad-top);
 }
@@ -1179,7 +1187,7 @@ body.us-collapsed #sidebarExpand { display: flex; }
   gap: 4px;
   background: #2a2a2a;
   border: var(--bp-block-border) solid #444;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   padding: var(--bp-block-pad);
   min-width: 0;
   cursor: grab;
