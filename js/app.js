@@ -225,9 +225,11 @@ function confirmClearAll() {
 // ================= URL 带码访问自动导入 =================
 // 支持两种形式：#状态码  （现行导出格式，与部署路径无关）
 //              /import#状态码 （旧版导出链接，继续兼容）
+// 返回值：true 表示链接里的码已经生效（不管是新建用户还是激活同状态的已有用户），
+// 调用方据此把首屏切到「2-配队」——分享链接的收件人真正想看的是配队结果，而不是角色清单。
 function handleUrlHashImport() {
   const hash = location.hash;
-  if (!hash || hash.length < 2) return;
+  if (!hash || hash.length < 2) return false;
   const code = hash.slice(1);
 
   // 先校验再决定要不要建用户：任何解析不了的 hash（分享码写错/被截断、误访问 /#foo）
@@ -236,7 +238,7 @@ function handleUrlHashImport() {
   if (!decoded.ok) {
     history.replaceState(null, '', siteBase() + location.search);
     showToast(`链接里的分享码无效（${decoded.error}），可能被截断或抄错，请让分享者重新发一次链接。`);
-    return;
+    return false;
   }
 
   // 若已有用户的编码状态与链接码一致，直接激活该用户，不新建
@@ -244,7 +246,7 @@ function handleUrlHashImport() {
     if (encodeUserState(u.uid) === code) {
       loadUser(u.uid);
       history.replaceState(null, '', siteBase() + location.search);
-      return;
+      return true;
     }
   }
 
@@ -259,11 +261,12 @@ function handleUrlHashImport() {
     saveMeta();
     history.replaceState(null, '', siteBase() + location.search);
     showToast(`导入失败：${res.error}`);
-    return;
+    return false;
   }
   loadUser(uid);
   // 清除 URL 中的状态码，避免之后每次刷新/收藏都重新导入一份
   history.replaceState(null, '', siteBase() + location.search);
+  return true;
 }
 
 // ================= 事件绑定 =================
@@ -384,8 +387,10 @@ scoreToggleEl.addEventListener('change', function () {
 applyScoreVisibility();
 
 if (meta.currentUid != null) loadUser(meta.currentUid);
-handleUrlHashImport();
+const codeApplied = handleUrlHashImport();
 renderUserList();
-// 首屏显示上次激活的页面（默认角色页），并持久化
-const prevPage = localStorage.getItem('activePage');
+// 首屏显示上次激活的页面（默认角色页），并持久化。
+// 例外：刚通过链接里的分享码导入/激活用户时直接落到「2-配队」，
+// 这样分享者发的链接点开来就是配队结果，不用自己再找一遍页签。
+const prevPage = codeApplied ? 'team' : localStorage.getItem('activePage');
 showPage(['role', 'team', 'boss'].includes(prevPage) ? prevPage : 'role');
