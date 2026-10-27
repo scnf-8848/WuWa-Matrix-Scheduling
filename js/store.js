@@ -83,6 +83,13 @@ function getCharCount(uid) {
   const d = readUserData(uid);
   return d ? Object.values(d.charData).filter(v => v.owned).length : 0;
 }
+// 队伍数（只算槽位里真的站了人的队伍）：用户栏的副标题用。
+// 与 getCharCount 一样，当前用户读内存、其余读存储 —— 两处口径必须一致，
+// 否则刚改完队伍时侧栏数字会慢半拍。
+function getTeamCount(uid) {
+  const list = uid === meta.currentUid ? teams : (readUserData(uid) || {}).teams;
+  return (Array.isArray(list) ? list : []).filter(t => t && Array.isArray(t.slots) && t.slots.some(s => s && s.id)).length;
+}
 
 // 迁移旧版固定用户(1~5)到新结构，仅迁移有数据的用户
 function migrateLegacy() {

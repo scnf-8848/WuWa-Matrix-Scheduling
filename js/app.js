@@ -21,102 +21,148 @@ function showPage(page) {
   if (page === 'boss') renderBossPage();
 }
 
-// ================= 用户列表 =================
+// ================= 用户列表（左侧栏） =================
+// 每行一个用户：第一行名字、第二行摘要，右侧「⋯」里放重命名 / 导入 / 导出 / 删除。
+// 摘要里的「N 队」不是装饰：帮别人配队的人（B）靠它一眼看出哪个用户里还留着自己配到一半的活。
+function userSummary(uid) {
+  const teamCount = getTeamCount(uid);
+  return `持有 ${getCharCount(uid)} 角色` + (teamCount ? ` · ${teamCount} 队` : '');
+}
+
 function renderUserList() {
   const list = document.getElementById('userList');
+  if (!list) return;
   list.innerHTML = '';
 
   if (meta.users.length === 0) {
     const empty = document.createElement('div');
-    empty.className = 'user-desc';
-    empty.style.padding = '20px 0';
-    empty.style.textAlign = 'center';
-    empty.textContent = '暂无用户，请点击下方按钮添加';
+    empty.className = 'us-empty';
+    empty.textContent = '暂无用户，点下方「新建用户」';
     list.appendChild(empty);
+    return;
   }
 
   meta.users.forEach(u => {
-    const card = document.createElement('div');
-    card.className = 'user-card' + (u.uid === meta.currentUid ? ' active' : '');
-    card.dataset.uid = u.uid;
+    const row = document.createElement('div');
+    row.className = 'us-row' + (u.uid === meta.currentUid ? ' active' : '');
+    row.dataset.uid = u.uid;
+    row.title = u.name; // 名字被省略号截断时仍能看到全名
 
-    const left = document.createElement('div');
-    left.className = 'card-left';
+    const name = document.createElement('span');
+    name.className = 'us-name';
+    name.textContent = u.name;
 
-    const nameRow = document.createElement('div');
-    nameRow.className = 'name-row';
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'user-name';
-    nameSpan.textContent = u.name;
-    const editBtn = document.createElement('button');
-    editBtn.className = 'edit-btn';
-    editBtn.textContent = '✎';
-    editBtn.title = '重命名';
-    editBtn.addEventListener('click', (e) => { e.stopPropagation(); startRename(card, u); });
-    nameRow.appendChild(nameSpan);
-    nameRow.appendChild(editBtn);
+    const summary = document.createElement('span');
+    summary.className = 'us-meta';
+    summary.textContent = userSummary(u.uid);
 
-    const desc = document.createElement('div');
-    desc.className = 'user-desc';
-    desc.textContent = `持有 ${getCharCount(u.uid)} 个角色`;
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'us-more';
+    more.textContent = '⋯';
+    more.title = '更多操作';
+    more.addEventListener('click', (e) => { e.stopPropagation(); openUserMenu(u, more); });
 
-    left.appendChild(nameRow);
-    left.appendChild(desc);
+    row.appendChild(name);
+    row.appendChild(summary);
+    row.appendChild(more);
 
-    const actions = document.createElement('div');
-    actions.className = 'card-actions';
-    actions.appendChild(mkBtn('导入', 'btn-import', () => openImport(u.uid)));
-    actions.appendChild(mkBtn('导出', 'btn-export', () => openExport(u.uid)));
-    actions.appendChild(mkBtn('删除', 'btn-delete', () => openDelete(u.uid)));
-
-    card.appendChild(left);
-    card.appendChild(actions);
-
-    // 点击卡片主体激活该用户
-    card.addEventListener('click', () => {
-      if (meta.currentUid !== u.uid) {
-        loadUser(u.uid);
-        renderUserList();
-        rerenderCurrentPage();
-      }
+    // 点行 = 激活该用户（等价于换一份数据，与点页签同级）
+    row.addEventListener('click', () => {
+      closeUserMenu();
+      if (meta.currentUid === u.uid) return;
+      loadUser(u.uid);
+      renderUserList();
+      rerenderCurrentPage();
     });
 
-    list.appendChild(card);
+    list.appendChild(row);
   });
-
-  // 添加用户虚线框（不自动激活）
-  const add = document.createElement('div');
-  add.className = 'add-user';
-  const addBtn = document.createElement('button');
-  addBtn.textContent = '＋ 添加用户';
-  addBtn.addEventListener('click', () => { addUser(defaultUserName(), false); renderUserList(); });
-  add.appendChild(addBtn);
-  list.appendChild(add);
 }
 
-function mkBtn(text, cls, handler) {
-  const b = document.createElement('button');
-  b.className = cls;
-  b.textContent = text;
-  b.addEventListener('click', (e) => { e.stopPropagation(); handler(); });
-  return b;
+// 新建用户：直接切过去。参考「开启新对话」—— 新用户是空的，下一步必然是进去设角色；
+// 被切走的用户数据都已落盘，不存在丢失。
+function createUser() {
+  const uid = addUser(defaultUserName(), true);
+  loadUser(uid);
+  closeUserMenu();
+  renderUserList();
+  rerenderCurrentPage();
 }
 
-// 编辑名字
-function startRename(card, u) {
-  const nameSpan = card.querySelector('.user-name');
-  const editBtn = card.querySelector('.edit-btn');
+// ================= 用户行二级菜单 =================
+// 全站共用一个节点（#userMenu），每次打开按被点的「⋯」重新定位：
+// 逐行各建一个菜单会让节点数与监听翻倍，而菜单内容是临时拼的，没必要常驻。
+let userMenuUid = null;
+
+function openUserMenu(u, anchor) {
+  const menu = document.getElementById('userMenu');
+  if (!menu) return;
+  menu.innerHTML = '';
+  const item = (label, fn, danger) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'us-menu-item' + (danger ? ' danger' : '');
+    b.textContent = label;
+    b.addEventListener('click', (e) => { e.stopPropagation(); closeUserMenu(); fn(); });
+    menu.appendChild(b);
+  };
+  item('重命名', () => {
+    const row = document.querySelector(`.us-row[data-uid="${u.uid}"]`);
+    if (row) startRename(row, u);
+  });
+  item('导入', () => openImport(u.uid));
+  item('导出', () => openExport(u.uid));
+  item('删除', () => openDelete(u.uid), true);
+
+  // 先显示再量尺寸，才知道它会不会顶出视口下沿
+  menu.classList.remove('hidden');
+  const r = anchor.getBoundingClientRect();
+  const w = menu.offsetWidth;
+  const h = menu.offsetHeight;
+  let left = r.left;
+  if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
+  if (left < 8) left = 8;
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  userMenuUid = u.uid;
+}
+
+function closeUserMenu() {
+  const menu = document.getElementById('userMenu');
+  if (!menu) return;
+  menu.classList.add('hidden');
+  menu.innerHTML = '';
+  userMenuUid = null;
+}
+
+// 点到菜单外、按 Esc、滚动列表、改窗口大小都收起。
+// 刻意放过「⋯」自身：它的 click 会重新打开菜单，先关再开只会闪一下。
+document.addEventListener('mousedown', (e) => {
+  if (userMenuUid == null) return;
+  const menu = document.getElementById('userMenu');
+  if (menu && menu.contains(e.target)) return;
+  if (e.target.closest && e.target.closest('.us-more')) return;
+  closeUserMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeUserMenu(); });
+window.addEventListener('resize', closeUserMenu);
+
+// 就地改名：把名字换成输入框，Enter 提交、Esc 取消，两者都走 blur 收尾。
+function startRename(row, u) {
+  const nameEl = row.querySelector('.us-name');
+  if (!nameEl) return;
   const input = document.createElement('input');
-  input.className = 'name-input';
+  input.className = 'us-name-input';
   input.value = u.name;
-
-  nameSpan.replaceWith(input);
-  if (editBtn) editBtn.style.visibility = 'hidden'; // 不再重复 replaceWith 同一个节点
+  nameEl.replaceWith(input);
   input.focus();
   input.select();
 
-  // Enter 与 Esc 都通过 blur 收尾，用 cancelled 区分「提交」与「取消」：
-  // 取消时绝不能写 u.name，否则界面显示新名字、存储还是旧名字（要等下一次 saveMeta 才被悄悄写入）
+  // cancelled 与 finished 分管两件事：前者区分「提交/取消」，后者防止 blur 与 Enter 重复收尾。
+  // 取消时绝不能写 u.name —— 否则界面看着恢复了，存储里却是新名字（等下次 saveMeta 才被悄悄写进去）。
   let cancelled = false;
   let finished = false;
   input.addEventListener('keydown', (e) => {
@@ -225,11 +271,15 @@ function confirmClearAll() {
 // ================= URL 带码访问自动导入 =================
 // 支持两种形式：#状态码  （现行导出格式，与部署路径无关）
 //              /import#状态码 （旧版导出链接，继续兼容）
-// 返回值：true 表示链接里的码已经生效（不管是新建用户还是激活同状态的已有用户），
-// 调用方据此把首屏切到「2-配队」——分享链接的收件人真正想看的是配队结果，而不是角色清单。
+// 返回值区分三种结局，供调用方决定首屏落在哪一页：
+//   'none'     —— 没有码 / 码无效 / 导入兜底回滚：什么都没发生，按持久化页面走
+//   'same'     —— 码命中的就是当前用户：数据一个字节都没变，界面也不该动
+//   'switched' —— 新建了用户，或激活了另一个用户：换人了，得跳到「2-配队」
+// 之所以要区分 same / switched：B 重开自己那份链接时不该被从当前页踢走，
+// 而换了人（典型是 B 点开新客户 A 的链接）时他来这里就是为了配队，跳过去才顺。
 function handleUrlHashImport() {
   const hash = location.hash;
-  if (!hash || hash.length < 2) return false;
+  if (!hash || hash.length < 2) return 'none';
   const code = hash.slice(1);
 
   // 先校验再决定要不要建用户：任何解析不了的 hash（分享码写错/被截断、误访问 /#foo）
@@ -238,7 +288,14 @@ function handleUrlHashImport() {
   if (!decoded.ok) {
     history.replaceState(null, '', siteBase() + location.search);
     showToast(`链接里的分享码无效（${decoded.error}），可能被截断或抄错，请让分享者重新发一次链接。`);
-    return false;
+    return 'none';
+  }
+
+  // 当前用户已吻合：不 loadUser（初始化时刚载入过），也不碰页面 —— 只是把码从 URL 上抹掉。
+  // 这一支单独提出来放在循环之前，否则循环会先命中更早的同状态用户，把人从当前档案切走。
+  if (meta.currentUid != null && encodeUserState(meta.currentUid) === code) {
+    history.replaceState(null, '', siteBase() + location.search);
+    return 'same';
   }
 
   // 若已有用户的编码状态与链接码一致，直接激活该用户，不新建
@@ -246,7 +303,7 @@ function handleUrlHashImport() {
     if (encodeUserState(u.uid) === code) {
       loadUser(u.uid);
       history.replaceState(null, '', siteBase() + location.search);
-      return true;
+      return 'switched';
     }
   }
 
@@ -261,12 +318,12 @@ function handleUrlHashImport() {
     saveMeta();
     history.replaceState(null, '', siteBase() + location.search);
     showToast(`导入失败：${res.error}`);
-    return false;
+    return 'none';
   }
   loadUser(uid);
   // 清除 URL 中的状态码，避免之后每次刷新/收藏都重新导入一份
   history.replaceState(null, '', siteBase() + location.search);
-  return true;
+  return 'switched';
 }
 
 // ================= 事件绑定 =================
@@ -274,12 +331,32 @@ document.getElementById('roleBtn').addEventListener('click', () => showPage('rol
 document.getElementById('teamBtn').addEventListener('click', () => showPage('team'));
 document.getElementById('bossBtn').addEventListener('click', () => showPage('boss'));
 document.getElementById('clearBtn').addEventListener('click', clearAllData);
-document.getElementById('userMgrBtn').addEventListener('click', () => {
-  renderUserList();
-  showModal('userModal');
-});
 
-// data-close：仅关闭自身所在弹窗，保留父级“用户管理”窗口
+// ================= 用户侧栏展开 / 收起 =================
+// 首次进入（localStorage 里没有记录）默认展开：新访客一眼就能看到「这网站有多个用户」。
+// 收起后状态持久化，用惯了的人可以把界面还原成只有三个页面的样子。
+const SIDEBAR_KEY = 'userSidebarOpen';
+function sidebarOpenPref() {
+  return localStorage.getItem(SIDEBAR_KEY) !== 'false';
+}
+function applySidebar(open) {
+  document.body.classList.toggle('us-collapsed', !open);
+  const toggle = document.getElementById('sidebarToggle');
+  if (toggle) toggle.title = '收起用户栏';
+}
+function setSidebar(open) {
+  writeStore(SIDEBAR_KEY, open ? 'true' : 'false');
+  applySidebar(open);
+  // 侧栏开关改变了主区宽度，但窗口尺寸没变 → resize 监听不会自己触发。
+  // 页面2/3 的头像与轨道尺寸都是按面板宽度算出来的，这里主动补一次重算。
+  window.dispatchEvent(new Event('resize'));
+}
+document.getElementById('sidebarToggle').addEventListener('click', () => setSidebar(false));
+document.getElementById('sidebarExpand').addEventListener('click', () => setSidebar(true));
+document.getElementById('sidebarBackdrop').addEventListener('click', () => setSidebar(false));
+document.getElementById('addUserBtn').addEventListener('click', createUser);
+
+// data-close：仅关闭自身所在弹窗
 document.querySelectorAll('[data-close]').forEach(btn => {
   btn.addEventListener('click', () => {
     const o = btn.closest('.overlay');
@@ -365,6 +442,9 @@ migrateLegacy();
 loadMeta();
 ensureUser(); // 无用户时自动生成 1 个默认用户
 
+// 侧栏开合状态要赶在首帧渲染前确定：晚一步会先按「展开」画一遍再跳成收起，闪一下。
+applySidebar(sidebarOpenPref());
+
 // 读取全局开关
 const savedGlobalShowAttr = localStorage.getItem('globalShowAttr');
 if (savedGlobalShowAttr !== null) showAttr = savedGlobalShowAttr === 'true';
@@ -387,10 +467,11 @@ scoreToggleEl.addEventListener('change', function () {
 applyScoreVisibility();
 
 if (meta.currentUid != null) loadUser(meta.currentUid);
-const codeApplied = handleUrlHashImport();
+const codeResult = handleUrlHashImport();
 renderUserList();
-// 首屏显示上次激活的页面（默认角色页），并持久化。
-// 例外：刚通过链接里的分享码导入/激活用户时直接落到「2-配队」，
-// 这样分享者发的链接点开来就是配队结果，不用自己再找一遍页签。
-const prevPage = codeApplied ? 'team' : localStorage.getItem('activePage');
+// 首屏页面。
+// 'switched'（新建用户 / 激活了另一个用户）→ 直接落到「2-配队」：B 点开链接来就是为了配队。
+//   这里照常走 showPage，所以 activePage 会被写成 'team' —— 这是对的，他确实停在了配队页。
+// 其余情况（没码 / 码无效 / 命中的就是当前用户）→ 完全按上次停留的页面走，界面不动。
+const prevPage = codeResult === 'switched' ? 'team' : localStorage.getItem('activePage');
 showPage(['role', 'team', 'boss'].includes(prevPage) ? prevPage : 'role');

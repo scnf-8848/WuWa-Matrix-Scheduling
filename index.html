@@ -9,8 +9,24 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- 左侧用户栏：固定定位，不参与 body 的纵向 flex；主区靠 body 的 padding-left 让位（见 styles.css）。
+         收起时整块 display:none，body 内边距归零，主区自动占满宽度。 -->
+    <aside id="userSidebar" class="us-bar">
+        <div class="us-head">
+            <span class="us-title">用户</span>
+            <button id="sidebarToggle" class="us-icon-btn" title="收起用户栏" aria-label="收起用户栏">&lt;</button>
+        </div>
+        <div id="userList" class="us-list"></div>
+        <div class="us-foot">
+            <button id="addUserBtn" class="us-add">＋ 新建用户</button>
+        </div>
+    </aside>
+    <div id="sidebarBackdrop" class="us-backdrop"></div>
+
     <nav>
         <div class="nav-left">
+            <!-- 侧栏收起后出现在左上角；展开时隐藏（见 styles.css） -->
+            <button id="sidebarExpand" title="展开用户栏" aria-label="展开用户栏">&gt;</button>
             <div class="toggle-container">
                 <label class="toggle-label">显示链+武</label>
                 <label class="toggle-switch">
@@ -25,7 +41,6 @@
             <button id="bossBtn">3-战斗</button>
         </div>
         <div class="nav-right">
-            <button id="userMgrBtn">用户管理</button>
             <button id="clearBtn" class="clear-all-btn">清空数据</button>
         </div>
     </nav>
@@ -84,16 +99,8 @@
         </div>
     </div>
 
-    <!-- 用户管理窗口 -->
-    <div id="userModal" class="overlay">
-        <div class="modal">
-            <div class="modal-title">
-                <span>用户管理</span>
-                <button class="close-x" data-close>×</button>
-            </div>
-            <div id="userList" class="um-user-list"></div>
-        </div>
-    </div>
+    <!-- 用户行的「⋯」二级菜单：整个页面共用一个，按需填充并定位 -->
+    <div id="userMenu" class="us-menu hidden"></div>
 
     <!-- 导出小窗 -->
     <div id="exportModal" class="overlay">

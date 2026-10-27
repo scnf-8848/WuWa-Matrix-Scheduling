@@ -121,7 +121,7 @@ function reconcile(container, items, keyOf, create, update, pool) {
 function emptyHint() {
   const h = document.createElement('div');
   h.style.cssText = 'padding:40px 0;color:#888;font-size:14px;text-align:center;grid-column:1/-1;';
-  h.textContent = '暂无用户，请点击右上角“用户管理”添加或导入';
+  h.textContent = '暂无用户，请用左侧用户栏的「新建用户」添加或导入';
   h.style.width = '100%';
   return h;
 }
