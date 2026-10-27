@@ -95,7 +95,10 @@ nav button.active {
    3) 页签缩小字号与内边距并禁止折行 —— 否则会被压成「1-/角色」两行，这是窄屏最显眼的难看点。
    注意本块必须排在 `nav button` 基础规则之后：同优先级下后者会覆盖这里。 */
 @media (max-width: 600px) {
+  /* 「清空数据」挪进侧栏后，导航栏右格是空的。留着它当 auto 列会把页签挤到左边，
+     所以窄屏直接隐藏这一格，让 nav-center 独占 1fr 并靠自身的 justify-content 居中 */
   nav { grid-template-columns: auto 1fr auto; padding: 8px; }
+  nav .nav-right { display: none; }
   nav button { padding: 6px 10px; font-size: 13px; margin-right: 8px; white-space: nowrap; }
   .nav-left .toggle-container { flex-direction: column; align-items: center; gap: 3px; }
   .nav-left .toggle-label { margin-right: 0; font-size: 12px; line-height: 1.1; white-space: nowrap; }
@@ -148,12 +151,6 @@ input:checked + .toggle-slider {
 }
 input:checked + .toggle-slider:before {
   transform: translateX(20px) translateY(-50%);
-}
-.clear-all-btn {
-  background-color: #dc3545;
-}
-.clear-all-btn:hover {
-  background-color: #c82333;
 }
 .page {
   display: flex;
@@ -740,6 +737,9 @@ body.us-collapsed .us-bar { display: none; }
   flex: 0 0 auto;
   padding: 8px;
   border-top: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .us-add {
   width: 100%;
@@ -752,6 +752,23 @@ body.us-collapsed .us-bar { display: none; }
   cursor: pointer;
 }
 .us-add:hover { background: #333; border-color: #4ade80; color: #fff; }
+/* 清空数据：破坏性但低频，做成「平时几乎看不见、悬浮才告警」的次要按钮，
+   避免与上面的「新建用户」形成两个等重的大按钮。想让它显眼，把 background 换成 #dc3545 即可 */
+.us-clear {
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #7a7a7a;
+  font-size: 12px;
+  cursor: pointer;
+}
+.us-clear:hover {
+  background: rgba(220, 53, 69, .12);
+  border-color: rgba(220, 53, 69, .45);
+  color: #ff6b6b;
+}
 
 /* 展开按钮：收起后它就在导航栏最左端，即视口左上角。外观见上面的 .us-icon-btn 共用规则 */
 #sidebarExpand {

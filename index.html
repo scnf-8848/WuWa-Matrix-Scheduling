@@ -19,6 +19,8 @@
         <div id="userList" class="us-list"></div>
         <div class="us-foot">
             <button id="addUserBtn" class="us-add">＋ 新建用户</button>
+            <!-- 清空数据是破坏性操作，收在侧栏底部当次要按钮：不与「新建用户」争视觉重量，悬浮才转为红色告警 -->
+            <button id="clearBtn" class="us-clear">清空数据</button>
         </div>
     </aside>
     <div id="sidebarBackdrop" class="us-backdrop"></div>
@@ -41,7 +43,8 @@
             <button id="bossBtn">3-战斗</button>
         </div>
         <div class="nav-right">
-            <button id="clearBtn" class="clear-all-btn">清空数据</button>
+            <!-- 这一格现在没有按钮了，但必须留着：导航栏是 1fr auto 1fr，
+                 右格一旦不存在，中间三枚页签就会跟着挪位、不再相对视口居中 -->
         </div>
     </nav>
     <div id="rolePage" class="page">
