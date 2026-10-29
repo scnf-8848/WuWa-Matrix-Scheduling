@@ -2,23 +2,23 @@
 // 只做“量 DOM → 算尺寸 → 写 CSS 变量网格”，不碰业务数据。
 
 /* ===== 页面2 队伍排布 =====
-   1. 横屏固定保持两列网格，队伍先填满左列、余数才进右列：每列行数取不压缩、不滚动前提下
-      的容量（TL_NATURAL_ROW 支撑的行数），而不是两列均分。左列靠最左，右列即使空着也保留
-      轨道位置 —— 这样队伍增加、右列开始出现时，已排好的左列不会移动。
+   1. 分列只看容量：一列装得下（不压缩时能放 capNat 行）就单列居中；装不下才分两列，
+      且先填满左列、余数才进右列 —— 两列时每列行数取 capNat 而不是均分，这样左列已经
+      排好的队伍不会因为多了一支而整体重排。右列即使空着也保留轨道位置。
    2. 行高吃满可用高度（上限 TL_MAX_ROW），而不是钉死在自然行高上，避免底部集中留白；
       行高有富余时把整块网格垂直居中，让留白上下均分。
-   3. 两列并不总是更优：列宽被压窄时头像会变小。故同时试算单列，取可读性更好的方案；
-      两列既没换来更大头像、又在纵向浪费超过 1/4 高度时，改单列。
+   3. 分列不能靠"纵向浪费比例"这类启发式（见下面 n <= capNat 分支的注释）：它算的是
+      内容总高占可用高度的比例，与"一列还能不能放下一行"无关，队伍数一变就会提前分列。
    4. 若最好的方案仍低于可读下限 TL_MIN_SLOT，放弃“一屏全显”，改用固定舒适行高并允许纵向滚动。
    5. 单列时队伍块不拉满整行：宽度收到“刚好不再被宽度限制”的 TL_ROW_MAX_W 并水平居中。 */
 const TL_MIN_SLOT = 28;    // 头像位可读下限
 const TL_MAX_SLOT = 55;    // 头像位上限
-const TL_MAX_ROW = 78;     // 行高上限：避免队伍块被拉得过分空旷
+const TL_MAX_ROW = 72;     // 行高上限：块高 = 头像 55 + 上下各 8.5，再高就只是白留（原来 78 上下各留 11.5，整块显得空）
 const TL_SCROLL_ROW = 60;  // 滚动模式行高（与 .team-row 的 min-height 一致）
 const TL_NATURAL_ROW = 70; // 自然行高：低于它即视为“压缩了队伍块”
 const TL_GAP = 10;         // 行距
 const TL_GAP_COLS = 20;    // 列距
-const TL_FIXED_W = 116;    // 每行除头像位外的固定宽度（把手 + 队伍名 + 内边距 + 头像间隔）
+const TL_FIXED_W = 132;    // 每行除头像位外的固定宽度（把手 + 队伍名 + 内边距 + 头像间隔 + 右侧 26px 的删队伍 × 留白）
 const TL_ROW_MAX_W = TL_FIXED_W + 3 * TL_MAX_SLOT; // 单列队伍块的最大宽度：再宽也换不来更大的头像
 
 // 试算某一列数方案：返回头像位尺寸、行高与内容总高。
@@ -29,18 +29,18 @@ function teamLayoutCandidate(colCount, availH, width, n, opts) {
   const rowBudget = o.row != null
     ? o.row
     : Math.min(TL_MAX_ROW, (availH - (perCol - 1) * TL_GAP) / perCol);
-  const padV = Math.max(10, Math.min(20,
+  // 上下内边距之和（CSS 里 each = padV / 2）。上限 17 而不是 20：行高上限已收到 72，
+  // 若还允许 20，slotFromV 就只剩 52，头像会被行高而不是宽度卡小 —— 那是反的。
+  // 下限 10 保证压扁时（滚动模式 60）仍有可点的边距。
+  const padV = Math.max(10, Math.min(17,
       (rowBudget - 32) / (TL_NATURAL_ROW - 32) * 10 + 10));
   const colW = (width - (colCount - 1) * TL_GAP_COLS) / colCount;
   const slotFromV = rowBudget - padV;
   const slotFromW = (colW - TL_FIXED_W) / 3;
   const slot = Math.max(4, Math.min(TL_MAX_SLOT, slotFromV, slotFromW));
-  return {
-    colCount, perCol, padV, slot, rowBudget,
-    // 头像位是被列宽卡住的（而非行高/上限）：此时减列才可能换来更大头像
-    widthLimited: slotFromW < slotFromV && slotFromW < TL_MAX_SLOT,
-    contentH: perCol * rowBudget + (perCol - 1) * TL_GAP
-  };
+  // 这里不返回内容总高：真正的行高要按「头像 + 上下边距」回算（见 updateLayoutScale），
+  // 用 rowBudget 估出来的那个值在列宽卡住头像时会偏大，拿它判居中会多留白。
+  return { colCount, perCol, padV, slot, rowBudget };
 }
 
 function updateLayoutScale() {
@@ -74,20 +74,25 @@ function updateLayoutScale() {
   } else {
     // 容量优先：不压缩队伍块（行高不低于自然行高）时，一列最多能放几行
     const capNat = Math.max(1, Math.floor((availH + TL_GAP) / (TL_NATURAL_ROW + TL_GAP)));
-    // 先尽量排满左列，再把余数放进右列；只有两列都装不下才回到均分并压缩
-    const twoPerCol = n <= capNat ? n
-      : (n <= capNat * 2 ? capNat : Math.ceil(n / 2));
-    const two = teamLayoutCandidate(2, availH, width, n, { perCol: twoPerCol });
-    const one = teamLayoutCandidate(1, availH, width, n);
-    best = two;
-    const slack = 1 - two.contentH / availH;   // 两列方案在纵向浪费掉的比例
-    // 改单列的三条理由：单列明显更清晰；两列已小到不可读而单列更大；
-    // 两列被列宽卡住、既没换来更大头像又在纵向浪费超过 1/4 高度。
-    // 注意：队伍数少、右列空着时仍保持两列（左列靠左不动），不因此改单列。
-    if (one.slot > two.slot * 1.15
-        || (two.slot < TL_MIN_SLOT && one.slot > two.slot)
-        || (two.widthLimited && one.slot >= two.slot && slack > 0.25)) {
-      best = one;
+    if (n <= capNat) {
+      // 一列装得下 → 单列居中，块宽收到可读上限（比两列的半宽更宽，头像也更大）。
+      // 这里不再拿两列方案做对比：两列要占两条轨道各半宽，右列还空着，块会缩窄并贴左，
+      // 而一列明明没满 —— 视觉上就是"靠左排列"。之前那个"纵向浪费超过 1/4 就改单列"
+      // 的启发式正是这种跳变的来源：它比的是内容总高 / 可用高度，队伍数一变就可能在这条
+      // 线两侧来回跨，跨过去就分列，跟"一列还能不能再放一行"完全无关。
+      best = teamLayoutCandidate(1, availH, width, n);
+    } else {
+      // 一列装不下：先尽量排满左列，再把余数放进右列；只有两列都装不下才回到均分并压缩
+      const twoPerCol = n <= capNat * 2 ? capNat : Math.ceil(n / 2);
+      const two = teamLayoutCandidate(2, availH, width, n, { perCol: twoPerCol });
+      const one = teamLayoutCandidate(1, availH, width, n);
+      best = two;
+      // 兜底：面板窄到两列的头像已经读不清（被列宽卡住）时，宁可单列压缩行高 ——
+      // 单列明显更大，或两列已跌破可读下限而单列还能救。宽面板下这两条都不成立。
+      if (one.slot > two.slot * 1.15
+          || (two.slot < TL_MIN_SLOT && one.slot > two.slot)) {
+        best = one;
+      }
     }
     if (best.slot < TL_MIN_SLOT) {
       // 两列也太小：给足舒适行高，超出部分改为滚动
@@ -103,7 +108,16 @@ function updateLayoutScale() {
   section.style.setProperty('--slot-size', `${best.slot}px`);
   section.style.setProperty('--row-pad-v', `${best.padV / 2}px`);
   section.style.setProperty('--row-ui-scale', `${uiScale.toFixed(3)}`);
-  section.style.gridTemplateRows = `repeat(${best.perCol}, ${best.rowBudget}px)`;
+  // 行高按「实际头像 + 上下边距」回算，而不是直接用 rowBudget：
+  // 列宽先卡住头像时（两列、面板窄），rowBudget 与 slot 之间那段差额只会变成块内
+  // 上下的白留 —— 头像 48 + 行高 72 就是上下各 12px 的空壳，队伍块显得空。
+  // 收紧后块高 = slot + padV，边距仍是 .team-row 的 padding；但不能再顶大：
+  // 下限只用来挡「比 min-height 还矮」的抖动，外面再套一层 min(rowBudget)，
+  // 免得行高被下限抬高、把内容挤出可用高度（那样会压到下一行 / 撑出滚动条）。
+  const rowH = Math.min(best.rowBudget,
+      Math.max(TL_SCROLL_ROW, Math.round(best.slot + best.padV)));
+  const contentH = rowH * best.perCol + (best.perCol - 1) * TL_GAP;
+  section.style.gridTemplateRows = `repeat(${best.perCol}, ${rowH}px)`;
   // 两列：始终保留两条轨道（左列靠最左）；单列：宽度收到上限，不拉满整行，整体水平居中
   section.style.gridTemplateColumns = best.colCount === 1
     ? `min(100%, ${TL_ROW_MAX_W}px)`
@@ -111,7 +125,7 @@ function updateLayoutScale() {
   section.style.justifyContent = best.colCount === 1 ? 'center' : '';
   section.style.gridAutoFlow = 'column';
   // 内容不足一屏 → 垂直居中（留白上下均分）；满屏或滚动 → 顶部对齐
-  section.style.alignContent = (!scroll && best.contentH < availH - 2) ? 'center' : 'start';
+  section.style.alignContent = (!scroll && contentH < availH - 2) ? 'center' : 'start';
   section.classList.toggle('team-scroll', scroll);
 }
 
