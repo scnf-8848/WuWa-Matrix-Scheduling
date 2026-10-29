@@ -806,6 +806,23 @@ body.us-collapsed .us-bar { display: none; }
   cursor: pointer;
 }
 .us-add:hover { background: #333; border-color: #4ade80; color: #fff; }
+/* 导入 / 导出：一枚全宽按钮，视觉重量夹在「新建用户」（实底，主）与「清空数据」
+   （几乎隐形）之间 —— 低频，但它是唯一能把整份数据搬走/搬回来的入口，不该藏得看不见。
+   「备份还是还原」这条二选一放进了窗口里，因为侧栏这 218px 只够放一个词。 */
+.us-backup {
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  color: #cfcfcf;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.us-backup:hover { background: #262626; border-color: #4a4a4a; color: #fff; }
+
 /* 清空数据：破坏性但低频，做成「平时几乎看不见、悬浮才告警」的次要按钮，
    避免与上面的「新建用户」形成两个等重的大按钮。想让它显眼，把 background 换成 #dc3545 即可 */
 .us-clear {
@@ -973,6 +990,23 @@ body.us-collapsed #sidebarExpand { display: flex; }
 .msg.err { color: #f87171; }
 .msg.ok  { color: #4ade80; }
 .msg.hint { color: #9ca3af; font-size: 12px; }
+
+/* ===== 导入 / 导出窗口：两屏（选择 → 确认） =====
+   两屏都是 .modal-body 的直接子项，各自内部竖排。注意 [hidden] 必须显式写：
+   下面给了 display:flex，作者样式会盖掉浏览器默认的 [hidden]{display:none}，
+   少了这一条，两屏会同时显示。 */
+.backup-pane { display: flex; flex-direction: column; gap: 12px; }
+.backup-pane[hidden] { display: none; }
+/* 说明正文 13px 而不是 12px 的 hint：窗口比侧栏宽得多，这里就是把话说全的地方，
+   12px 连读三段会累 */
+.backup-note { font-size: 13px; line-height: 1.75; color: #b9b9b9; }
+.backup-note b { color: #e5e5e5; font-weight: 600; }
+/* 最后一句是「别把两种导入搞混」的脚注：压暗一档并单独成块，
+   否则它跟着上一段末尾，看起来像同一句话的续写 */
+.backup-fine { display: block; margin-top: 6px; color: #7a7a7a; font-size: 12px; }
+/* 两个入口等宽撑满一行，而不是挤到右下角：它们是一次二选一，靠右会让窗口右重左空 */
+.backup-actions { display: flex; gap: 8px; }
+.backup-actions .modal-btn { flex: 1 1 0; padding: 9px 10px; }
 
 /* 轻提示：用于「保存失败」「链接里的分享码无效」这类无法挂到某个输入框上的失败提示。
    层级高于模态窗(1000)、低于拖拽幽灵(9999)，所以在导入弹窗里也能看见。 */

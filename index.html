@@ -19,10 +19,17 @@
         <div id="userList" class="us-list"></div>
         <div class="us-foot">
             <button id="addUserBtn" class="us-add">＋ 新建用户</button>
+            <!-- 「导入 / 导出」是一个入口，不是两个按钮：具体做什么（备份还是还原）在窗口里讲，
+                 那里有横向空间把「导的是什么、还原会动什么」写清楚。侧栏只留一枚不多想的按钮。
+                 注意它和用户行 ⋯ 里的「导入 / 导出」不是一回事：那边是单人分享码（只有角色库），
+                 这边是本机全部用户的 json 备份。 -->
+            <button id="backupBtn" class="us-backup">导入 / 导出</button>
             <!-- 清空数据是破坏性操作，收在侧栏底部当次要按钮：不与「新建用户」争视觉重量，悬浮才转为红色告警 -->
             <button id="clearBtn" class="us-clear">清空数据</button>
         </div>
     </aside>
+    <!-- 文件选择器藏起来：由备份窗口里的「导入 / 还原」触发，用户看不到原生 input 的丑陋外观 -->
+    <input id="fileInput" type="file" accept=".json,application/json" hidden>
     <div id="sidebarBackdrop" class="us-backdrop"></div>
 
     <nav>
@@ -161,6 +168,55 @@
                 <div class="modal-btn-row">
                     <button class="modal-btn btn-danger" id="clearOk">清空</button>
                     <button class="modal-btn btn-ghost" data-close>取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入 / 导出：一个窗口装两件事，两屏切换。
+         第一屏先把「这份文件里装的是什么」讲清楚（侧栏那 218px 讲不了），点导入后才切到第二屏
+         确认合并 / 覆盖。用同窗切换而不是再弹一层窗 —— 两层遮罩叠在一起会糊成一片黑，
+         而且第二屏的「返回」要能退回第一屏，叠窗做不到这件事。 -->
+    <div id="backupModal" class="overlay">
+        <div class="modal small-modal">
+            <div class="modal-title">
+                <span id="backupTitle">导入 / 导出</span>
+                <button class="close-x" data-close>×</button>
+            </div>
+            <div class="modal-body">
+                <!-- 第一屏：选择做什么 -->
+                <div id="backupHome" class="backup-pane">
+                    <div class="backup-note" id="backupHomeInfo"></div>
+                    <div class="backup-note">
+                        <b>导出 / 备份</b>：把本机<b>全部用户</b>存成一个 json 文件，含角色、共鸣链、专武、配队与页面 3 的排布。
+                        <br>
+                        <b>导入 / 还原</b>：读回这种文件。可以<b>合并</b>到现有用户后面，也可以<b>覆盖</b>——覆盖会先清空现有全部用户。
+                        <br>
+                        <span class="backup-fine">用户行 <b>⋯</b> 里的「导入 / 导出」是另一回事：那是单人的分享码，只有角色库，不含配队。</span>
+                    </div>
+                    <div class="backup-actions">
+                        <button class="modal-btn btn-primary" id="fileExportBtn">导出/备份</button>
+                        <button class="modal-btn btn-ghost" id="fileImportBtn">导入/还原</button>
+                    </div>
+                    <div class="modal-btn-row">
+                        <button class="modal-btn btn-ghost" data-close>取消</button>
+                    </div>
+                </div>
+                <!-- 第二屏：文件已选好，确认怎么处理 -->
+                <div id="backupConfirm" class="backup-pane" hidden>
+                    <div class="backup-note" id="fileImportInfo"></div>
+                    <div class="backup-note">
+                        <b>合并</b>：保留现有用户，把文件里的用户追加到列表末尾（重名自动加序号）。<br>
+                        <b>覆盖</b>：先清空现有<b>全部用户</b>，再按文件还原。<strong>不可撤销</strong>。
+                    </div>
+                    <div class="modal-btn-row">
+                        <button class="modal-btn btn-primary" id="fileImportMerge">合并导入</button>
+                        <button class="modal-btn btn-danger" id="fileImportReplace">覆盖导入</button>
+                    </div>
+                    <div class="modal-btn-row">
+                        <!-- 返回第一屏（不是关窗）：选了文件又反悔时，退回上一步重新挑 -->
+                        <button class="modal-btn btn-ghost" id="backupBack">返回</button>
+                    </div>
                 </div>
             </div>
         </div>

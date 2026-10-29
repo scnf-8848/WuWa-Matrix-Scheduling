@@ -347,6 +347,146 @@ async function copyToClipboard(text, btn) {
   showToast('自动复制失败，内容已选中，请按 Ctrl+C 手动复制');
 }
 
+// ================= 文件导入 / 导出（全部用户） =================
+// 与用户行「⋯ → 导入 / 导出」的分享码不是一回事：
+//   分享码   —— 一个人、只有角色库，十几位字符，方便发给别人；
+//   文件备份 —— 本机全部用户、含配队与页面3 排布，存成 json，用于换机器 / 换浏览器 / 归档。
+let pendingBackup = null;
+
+// 窗口两屏：'home' 选做什么 / 'confirm' 确认合并还是覆盖。
+// 同窗切屏而不是开第二个弹窗 —— 两屏之间要能来回走（第二屏的「返回」），
+// 叠窗在视觉上也是两层黑遮罩压在一起。
+function showBackupPane(name) {
+  document.getElementById('backupHome').hidden = name !== 'home';
+  document.getElementById('backupConfirm').hidden = name !== 'confirm';
+  document.getElementById('backupTitle').textContent = name === 'home' ? '导入 / 导出' : '导入 / 还原';
+}
+
+function openBackupModal() {
+  // 每次从第一屏开始：上次可能停在第二屏就按了 ×，留着上一份文件的信息，
+  // 会让人以为自己已经选好文件了
+  pendingBackup = null;
+  resetReplaceConfirm();
+  document.getElementById('backupHomeInfo').textContent = `本机现有 ${meta.users.length} 个用户`;
+  showBackupPane('home');
+  showModal('backupModal');
+}
+
+function backupFileName() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `鸣潮矩阵编队_备份_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+}
+
+function exportAllUsers() {
+  const data = buildBackup();
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = backupFileName();
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // 立刻 revoke 会让部分浏览器来不及读这个 blob，推迟一拍
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  showToast(`已导出 ${data.users.length} 个用户`);
+}
+
+// 选中文件 → 校验并弹窗确认。解析失败直接 toast，不弹一个没有内容的空窗让用户猜。
+function openBackupFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => showToast('读取文件失败，请重试');
+  reader.onload = () => {
+    let raw = null;
+    try { raw = JSON.parse(String(reader.result)); }
+    catch { showToast('导入失败：文件不是有效的 JSON'); return; }
+    const parsed = parseBackup(raw);
+    if (!parsed.ok) { showToast(`导入失败：${parsed.error}`); return; }
+    pendingBackup = parsed;
+    // 先让用户看清「这份文件里到底是什么」，再决定覆盖还是合并
+    const when = parsed.exportedAt ? new Date(parsed.exportedAt) : null;
+    const parts = [`文件里有 <b>${parsed.users.length}</b> 个用户`];
+    if (when && !isNaN(when.getTime())) parts.push(`导出于 ${when.toLocaleString('zh-CN')}`);
+    if (parsed.skipped) parts.push(`另有 ${parsed.skipped} 条记录无法识别，将被跳过`);
+    document.getElementById('fileImportInfo').innerHTML = parts.join(' · ');
+    resetReplaceConfirm();
+    // 只有文件确实解析成功才进第二屏：选错文件时用户还留在第一屏，
+    // 可以直接重选，不用关窗重来
+    showBackupPane('confirm');
+    showModal('backupModal');
+  };
+  reader.readAsText(file);
+}
+
+function applyBackup(mode) {
+  if (!pendingBackup) return;
+  const res = importBackup(pendingBackup, mode);
+  if (!res.ok) { showToast(`导入失败：${res.error}`); return; }
+  pendingBackup = null;
+  resetReplaceConfirm();
+  hideModal('backupModal');
+  if (res.replaced) {
+    // 整套用户换人了：当前用户对象已不是内存里那一份，先换内存态再画三页
+    // （renderUserList 副标题里的「持有 N 角色」对当前用户读的是内存，顺序反了会显示旧数字）
+    loadUser(meta.currentUid);
+    renderUserList();
+    rerenderCurrentPage();
+    showToast(`已用文件里的 ${res.added.length} 个用户替换全部数据`);
+  } else {
+    renderUserList();
+    showToast(`已合并导入 ${res.added.length} 个用户${res.skipped ? `，跳过 ${res.skipped} 条` : ''}`);
+  }
+}
+
+// 覆盖是不可撤销的，做成「同一枚按钮点两次」的确认：第一次改成问句并 4 秒后自动复原，
+// 比再叠一层弹窗轻，也不会被手快的人连点两下穿透。
+let replaceArmed = false;
+let replaceTimer = null;
+function resetReplaceConfirm() {
+  replaceArmed = false;
+  clearTimeout(replaceTimer);
+  const btn = document.getElementById('fileImportReplace');
+  if (btn) btn.textContent = '覆盖导入';
+}
+function onReplaceClick() {
+  if (!replaceArmed) {
+    replaceArmed = true;
+    const btn = document.getElementById('fileImportReplace');
+    if (btn) btn.textContent = '确认覆盖？';
+    clearTimeout(replaceTimer);
+    replaceTimer = setTimeout(resetReplaceConfirm, 4000);
+    return;
+  }
+  resetReplaceConfirm();
+  applyBackup('replace');
+}
+
+document.getElementById('backupBtn').addEventListener('click', openBackupModal);
+document.getElementById('fileExportBtn').addEventListener('click', () => {
+  exportAllUsers();
+  // 文件已经下载了，窗口留着只会挡着用户看界面（导出与侧栏里的数据无关，没有后续要确认的）
+  hideModal('backupModal');
+});
+document.getElementById('fileImportBtn').addEventListener('click', () => {
+  const input = document.getElementById('fileInput');
+  // 窗口先不关：用户在系统选择器里按「取消」时回来仍是第一屏，
+  // 不必重新点侧栏按钮 —— 这就是「关窗再选」方案要付的那笔代价
+  input.value = ''; // 清空 value，否则连续选同一个文件不会触发 change
+  input.click();
+});
+document.getElementById('backupBack').addEventListener('click', () => {
+  // 返回第一屏，同时丢掉已选文件：否则「返回」后再点合并导入会用上一份数据
+  pendingBackup = null;
+  resetReplaceConfirm();
+  showBackupPane('home');
+});
+document.getElementById('fileInput').addEventListener('change', (e) => {
+  openBackupFile(e.target.files && e.target.files[0]);
+});
+document.getElementById('fileImportMerge').addEventListener('click', () => applyBackup('merge'));
+document.getElementById('fileImportReplace').addEventListener('click', onReplaceClick);
+
 // ================= 清空全部数据 =================
 function clearAllData() {
   showModal('clearModal');

@@ -497,6 +497,157 @@ function duplicateUser(uid, name) {
   return newUid;
 }
 
+// ================= 文件备份：全部用户的导入 / 导出 =================
+// 与分享码是两条完全不同的通道，别混：
+//   分享码   —— 一个用户的角色库（持有 / 链 / 武 + 额外疲劳），十几位字符，发给别人传状态用；
+//   文件备份 —— 本机全部用户的完整数据（含配队、页面3 排布），存成 json，换机器 / 换浏览器 / 归档用。
+// 文件里带 uid，只为让「导出时停在哪个用户」能在导入后重新对上；导入时一律重新分配 uid
+// （理由见 importBackup —— 直接沿用文件里的 uid 会静默覆盖目标浏览器里的同名用户）。
+const BACKUP_APP = 'wuwa-matrix-scheduling';
+const BACKUP_FORMAT = 1;
+
+// 导出：把全部用户拼成一份可直接落成文件的快照。
+// 当前用户读内存（含还没落盘的改动）、其余读存储 —— 与「复制用户」同一个口径。
+function buildBackup() {
+  return {
+    app: BACKUP_APP,
+    format: BACKUP_FORMAT,
+    schema: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    currentUid: meta.currentUid,
+    users: meta.users.map(u => ({ uid: u.uid, name: u.name, data: snapshotUserData(u.uid) })),
+  };
+}
+
+// 校验 + 清洗一份备份内容。纯函数、不写存储：先让用户看清「要导入几个用户」再决定覆盖还是合并。
+function parseBackup(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: '文件内容不是一个 JSON 对象' };
+  }
+  if (raw.app && raw.app !== BACKUP_APP) {
+    return { ok: false, error: '这不是本站导出的备份文件' };
+  }
+  if (!Array.isArray(raw.users)) {
+    return { ok: false, error: '文件里没有用户列表，可能不是本站导出的备份' };
+  }
+  const users = [];
+  let skipped = 0;
+  raw.users.forEach(u => {
+    if (!u || typeof u !== 'object' || !u.data || typeof u.data !== 'object' || Array.isArray(u.data)) {
+      skipped++;
+      return;
+    }
+    const name = (typeof u.name === 'string' && u.name.trim()) || '未命名用户';
+    users.push({ srcUid: Number(u.uid) || null, name, data: sanitizeUserData(u.data) });
+  });
+  if (!users.length) return { ok: false, error: '文件里没有可导入的用户数据' };
+  return {
+    ok: true,
+    users,
+    skipped,
+    exportedAt: typeof raw.exportedAt === 'string' ? raw.exportedAt : null,
+    currentUid: Number(raw.currentUid) || null,
+  };
+}
+
+// 导入前的清洗：走与「读取旧数据」同一条迁移路径（旧版以名字为键的数据也能导入），
+// 再按当前的状态规则修剪 —— 槽位不能留未持有的角色、页面3 不能留空队伍的块、队伍 id 补齐。
+// 不做这一步，一份手改过或来自旧版本的文件就会把脏数据写进存储，等下次打开才炸。
+function sanitizeUserData(d) {
+  const m = migrateUserData(d);
+  pruneInvalidSlots(m.teams, id => !!(m.charData[id] && m.charData[id].owned));
+  m.bossPage = normalizeBossPage(m.bossPage);
+  pruneEmptyTeamBlocks(m.bossPage, m.teams);
+  // seedTeamIdSeq 只看全局 teams / bossPage，这里要给「待导入的这一份」单独算一遍，
+  // 否则新队伍的 id 会与文件里已有的队伍撞号，页面3 的块就错绑了
+  let maxId = Number(m.teamIdSeq) || 0;
+  const rounds = (m.bossPage && Array.isArray(m.bossPage.rounds)) ? m.bossPage.rounds : [];
+  rounds.forEach(r => (Array.isArray(r) ? r : []).forEach(p => {
+    if (p && typeof p.teamId === 'number' && p.teamId > maxId) maxId = p.teamId;
+  }));
+  m.teams.forEach(t => { if (typeof t.id === 'number' && t.id > maxId) maxId = t.id; });
+  m.teams.forEach(t => { if (typeof t.id !== 'number') t.id = ++maxId; });
+  m.teamIdSeq = maxId;
+  return m;
+}
+
+// 落盘。mode：
+//   'merge'   —— 保留现有用户，文件里的用户追加到末尾（重名自动加序号）
+//   'replace' —— 用文件里的用户替换全部现有用户
+// 两条路径的共同点：**导入的用户一律分配新 uid**。若沿用文件里的 uid，碰到「目标浏览器
+// 已有一个 uid 相同的用户」就会把人家的数据直接覆盖掉 —— 而备份文件恰恰大多来自另一台机器 /
+// 另一个浏览器。新旧 uid 的对应关系只用来还原「导出时停在哪个用户」。
+// 失败（配额满 / 存储被禁用）必须能整笔回滚：先把新用户的键写完，全部成功才动旧数据。
+function importBackup(parsed, mode) {
+  if (!parsed || !parsed.ok) return { ok: false, error: '没有可导入的数据' };
+  const prevUsers = meta.users.slice();
+  const prevSeq = meta.seq;
+  const prevCurrent = meta.currentUid;
+  const written = [];
+
+  const rollback = (error) => {
+    written.forEach(uid => localStorage.removeItem(`userData_${uid}`));
+    meta.users = prevUsers;
+    meta.seq = prevSeq;
+    meta.currentUid = prevCurrent;
+    return { ok: false, error };
+  };
+
+  // 覆盖模式下旧用户马上就要被删掉，重名判断不该把它们算进来 ——
+  // 否则「导出时叫甲，覆盖导入后叫甲 (4)」，明明是一次干净还原却平白多了后缀
+  const usedNames = new Set(mode === 'replace' ? [] : prevUsers.map(u => u.name));
+  const added = [];
+  const uidOf = new Map();   // 文件里的 uid → 本次分配的 uid
+
+  for (const u of parsed.users) {
+    // 新 uid 要避开任何已存在的 userData_ 键（含历史遗留的孤儿键），与 addUser 同一条纪律
+    let uid;
+    do { meta.seq += 1; uid = meta.seq; } while (localStorage.getItem(`userData_${uid}`) != null);
+    const name = uniqueName(u.name, usedNames);
+    usedNames.add(name);
+    const d = u.data;
+    if (!writeStore(`userData_${uid}`, JSON.stringify({
+      v: SCHEMA_VERSION,
+      charData: d.charData,
+      teams: d.teams,
+      extraUseChars: [...d.extraUseChars],
+      bossPage: d.bossPage,
+      teamIdSeq: d.teamIdSeq,
+    }))) {
+      return rollback('写入失败：浏览器存储不可用或空间已满，本次导入未生效');
+    }
+    written.push(uid);
+    added.push({ uid, name });
+    if (u.srcUid != null && !uidOf.has(u.srcUid)) uidOf.set(u.srcUid, uid);
+  }
+
+  // 新数据全部写成功之后才动旧数据：覆盖模式在这一步删掉旧用户的键
+  if (mode === 'replace') {
+    prevUsers.forEach(u => localStorage.removeItem(`userData_${u.uid}`));
+    meta.users = added;
+    const target = parsed.currentUid != null ? uidOf.get(parsed.currentUid) : null;
+    meta.currentUid = target != null ? target : added[0].uid;
+  } else {
+    meta.users = prevUsers.concat(added);
+    // 合并时**不切用户**：用户手上正开着某份活，导入只是往列表里添几行。
+    // 只有原本没有当前用户（理论上 ensureUser 兜住了，这里防御）才退到第一个。
+    if (meta.currentUid == null || !meta.users.some(u => u.uid === meta.currentUid)) {
+      meta.currentUid = added[0].uid;
+    }
+  }
+  saveMeta();
+  return { ok: true, added, replaced: mode === 'replace', skipped: parsed.skipped || 0 };
+}
+
+// 合并导入时重名会让侧栏出现两行一模一样的名字，加序号区分。
+// 这里不用复制用户那套「_复制N」：导入体不是派生品，`(2)` 更中性，也不会与 _复制N 的编号打架。
+function uniqueName(base, used) {
+  if (!used.has(base)) return base;
+  let n = 2;
+  while (used.has(`${base} (${n})`)) n++;
+  return `${base} (${n})`;
+}
+
 // ================= 多标签页同步 =================
 // 同一个 key 在另一个标签页被写入时，本页内存就过期了：继续用会让后保存的一方把先保存的覆盖回去。
 // 这里只重读并重绘，绝不回写 —— 回写会制造第二个 storage 事件，两页互相触发。
