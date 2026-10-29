@@ -22,8 +22,9 @@ function showPage(page) {
 }
 
 // ================= 用户列表（左侧栏） =================
-// 每行一个用户：第一行名字、第二行摘要，右侧「⋯」里放重命名 / 导入 / 导出 / 删除。
+// 每行一个用户：第一行名字、第二行摘要，右侧「⋯」里放重命名 / 导入 / 导出 / 复制 / 删除。
 // 摘要里的「N 队」不是装饰：帮别人配队的人（B）靠它一眼看出哪个用户里还留着自己配到一半的活。
+// 行还可以按住上下拖动改变顺序（见下面的「用户行拖动排序」）。
 function userSummary(uid) {
   const teamCount = getTeamCount(uid);
   return `持有 ${getCharCount(uid)} 角色` + (teamCount ? ` · ${teamCount} 队` : '');
@@ -69,6 +70,8 @@ function renderUserList() {
 
     // 点行 = 激活该用户（等价于换一份数据，与点页签同级）
     row.addEventListener('click', () => {
+      // 刚拖动过：这一下 click 是松手带出来的，不能当成「切到该用户」
+      if (userDragMoved) { userDragMoved = false; return; }
       closeUserMenu();
       if (meta.currentUid === u.uid) return;
       loadUser(u.uid);
@@ -76,7 +79,95 @@ function renderUserList() {
       rerenderCurrentPage();
     });
 
+    setupUserDrag(row, u);
     list.appendChild(row);
+  });
+}
+
+// ================= 用户行拖动排序 =================
+// 骨架复用页面2 队伍块那套 createDrag（8px 位移才进入拖拽 / 触屏长按 220ms / 幽灵跟随指针 /
+// 统一清理），表现也就跟着一致：幽灵带绿框浮在指针下，源行腾出空位，目标位置用绿色虚线块
+// 占位，其余用户行实时让位 —— 松手前就能看到排完的样子。
+// 差异只有落位判定：队伍是「列 × 行」网格，用户列表只有一列，越过哪一行的中线就插到它前面。
+// 拖动的只是「用户之间」的先后顺序（meta.users 顺序 = 显示顺序，谁也不从属于谁），
+// 所以落位是纯数组 splice，不牵动任何别的数据。
+// 不额外加拖拽把手 —— 侧栏只有 218px，多一列图标会挤掉名字；整行按住拖即可。
+let userDragMoved = false;   // 拖完之后紧跟的那次 click 要吞掉，否则松手会顺手切用户
+
+const UserDrag = createDrag({
+  sourceSelector: '.us-row',
+
+  onActivate(c, x, y) {
+    userDragMoved = true;   // 松手后会带出一次 click，那不是「切到该用户」
+    const el = c.sourceEl;
+    const r = el.getBoundingClientRect();
+    // 抓取点相对幽灵左上角的偏移：幽灵随指针走但保持原来的抓握位置，不会瞬移到指针中心
+    c.grabPx = Math.min(Math.max(x - r.left, 0), r.width);
+    c.grabPy = Math.min(Math.max(y - r.top, 0), r.height);
+    c.ghost = makeGhostFrom(el);
+    c.ghost.style.width = `${r.width}px`;
+    c.ghost.style.height = `${r.height}px`;
+    // 源行移出列表流（占位块接替它的位置），其它用户行实时重排
+    el.style.display = 'none';
+    const ph = document.createElement('div');
+    ph.className = 'us-row-placeholder';
+    ph.style.height = `${r.height}px`;
+    const list = document.getElementById('userList');
+    if (list) list.appendChild(ph);
+    c.placeholder = ph;
+  },
+
+  onMove(c, x, y) {
+    if (c.ghost) {
+      c.ghost.style.left = `${x - c.grabPx}px`;
+      c.ghost.style.top = `${y - c.grabPy}px`;
+    }
+    userDragUpdatePlaceholder(c, y);
+  },
+
+  onEnd(c, payload) {
+    const to = c.targetIndex;
+    if (to == null) return;
+    // 行节点会被复用、用户也会被增删：按 uid 现查下标，不用渲染时捕获的值
+    const from = meta.users.findIndex(u => u.uid === payload.uid);
+    if (from < 0 || to === from || to > meta.users.length - 1) return;
+    const moved = meta.users.splice(from, 1)[0];
+    meta.users.splice(to, 0, moved);
+    saveMeta();
+    renderUserList();
+  },
+
+  onCleanup(c) {
+    if (c.sourceEl) c.sourceEl.style.display = '';
+    if (c.placeholder) { c.placeholder.remove(); c.placeholder = null; }
+  },
+});
+
+// 目标落位：占位块插到「第 index 个其它行」之前。
+// 这个下标正好等于「从数组里摘掉源用户后」该插入的位置，松手时直接 splice 即可，不用再修正。
+function userDragUpdatePlaceholder(c, cy) {
+  if (!c.placeholder) return;
+  const list = document.getElementById('userList');
+  if (!list) return;
+  const rows = [...list.querySelectorAll('.us-row')].filter(el => el !== c.sourceEl);
+  let before = null, idx = rows.length;
+  for (let i = 0; i < rows.length; i++) {
+    const b = rows[i].getBoundingClientRect();
+    if (cy < b.top + b.height / 2) { before = rows[i]; idx = i; break; }
+  }
+  c.targetIndex = idx;
+  list.insertBefore(c.placeholder, before);
+}
+
+function setupUserDrag(row, u) {
+  row.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return; // 只响应左键（触屏单指的 button 也是 0）
+    // 「⋯」和改名输入框各有自己的点击语义，按在它们上面不启动拖拽
+    if (e.target.closest('.us-more') || e.target.closest('.us-name-input')) return;
+    // 每次按下先清掉「吞点击」标记：上一次拖完若指针移出了行、没走到 click，
+    // 残留的 true 会把这次正常点击吞掉
+    userDragMoved = false;
+    UserDrag.begin(e, { uid: u.uid, sourceEl: row }, e.pointerType !== 'mouse');
   });
 }
 
@@ -113,6 +204,18 @@ function openUserMenu(u, anchor) {
   });
   item('导入', () => openImport(u.uid));
   item('导出', () => openExport(u.uid));
+  // 复制：整份数据拷一份另起一个用户，当前用户保持不变。
+  // 不自动切过去是刻意的 —— 复制的典型用法是「改之前先备份」，切走会打断手上的操作；
+  // 而且复制体只是个存档，用户点它一下就能过去。
+  item('复制', () => {
+    const name = copyUserName(u.name);
+    if (duplicateUser(u.uid, name) == null) {
+      showToast('复制失败：浏览器存储不可用或空间已满');
+      return;
+    }
+    renderUserList();
+    showToast(`已复制为「${name}」`);
+  });
   item('删除', () => openDelete(u.uid), true);
 
   // 先显示再量尺寸，才知道它会不会顶出视口下沿

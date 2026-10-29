@@ -700,9 +700,36 @@ body.us-collapsed .us-bar { display: none; }
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
+  /* 行内没有需要选中的文本（改名是输入框，单独放开），禁掉更省心：
+     否则按住拖动时浏览器会顺手把名字抹成蓝色选区 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .us-row:hover { background: #232323; }
 .us-row.active { background: #22331f; border-color: rgba(74, 222, 128, .35); }
+
+/* 拖动排序：整体沿用页面2 队伍块的表现 —— 幽灵 + 虚线占位。
+   幽灵是 `.drag-ghost`（fixed 定位、绿色实线、投影），但 `.us-row` 自身的
+   position/border 规则写在 `.drag-ghost` 之后，会盖掉基础样式，所以这里补一条。 */
+.us-row.drag-ghost {
+  position: fixed;
+  display: grid;
+  align-items: stretch;
+  /* 幽灵要不透明才显得「浮起来」：.us-row 平时没有底色（只有 hover 给），
+     透明的话会把下面的行和虚线占位透出来、糊成一片 */
+  background: #2a2a2a;
+  border: 2px solid #4ade80;
+}
+/* 目标落位：空白块 + 绿色虚线，插进列表后实时把其它用户行挤开（预览排完的样子）。
+   高度由 JS 按被拖行现量，圆角与 .us-row 对齐。 */
+.us-row-placeholder {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  border: 2px dashed #4ade80;
+  border-radius: 8px;
+  background: rgba(74, 222, 128, .08);
+  pointer-events: none;
+}
 .us-name {
   grid-column: 1;
   font-size: 13px;
@@ -749,6 +776,9 @@ body.us-collapsed .us-bar { display: none; }
 .us-name-input {
   grid-column: 1;
   width: 100%;
+  /* 父级 .us-row 禁了选中（避免拖动时抹蓝），改名框得单独放开 */
+  user-select: text;
+  -webkit-user-select: text;
   background: #121212;
   border: 1px solid #4ade80;
   border-radius: 5px;

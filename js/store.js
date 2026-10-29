@@ -326,21 +326,53 @@ function normalizeState() {
   pruneContinuations();
 }
 
+// 一份「可直接落盘」的数据快照：当前用户读内存（可能有还没落盘的改动），
+// 其余用户读存储（它们没有内存态）。
+// 落盘与「复制用户」共用这一个口径 —— 否则复制当前用户拿到的是上一次落盘的旧数据，
+// 刚改的链/武/配队会整段丢掉。
+// 注意 teams / bossPage 是直接引用：调用方要立刻 JSON.stringify，不能攒着等下次修改。
+function snapshotUserData(uid) {
+  if (uid === meta.currentUid) {
+    const charData = {};
+    characters.forEach(char => {
+      charData[char.id] = { owned: !!char.owned, chain: char.chain, weapon: char.weapon };
+    });
+    return {
+      v: SCHEMA_VERSION,
+      charData,
+      teams,
+      extraUseChars: [...extraUseChars],
+      bossPage,
+      teamIdSeq,
+    };
+  }
+  const d = readUserData(uid);
+  if (!d) {
+    // 从没落过盘的用户（新建后没做任何改动就切走，或存储被清过）：按默认空数据算，
+    // 与 applyUserData 对「读不到数据」的处理保持一致 —— 否则「复制空用户」会变成失败
+    return {
+      v: SCHEMA_VERSION,
+      charData: {},
+      teams: defaultTeams(),
+      extraUseChars: [],
+      bossPage: normalizeBossPage(null),
+      teamIdSeq: 0,
+    };
+  }
+  return {
+    v: SCHEMA_VERSION,
+    charData: d.charData,
+    teams: d.teams,
+    extraUseChars: [...d.extraUseChars],
+    bossPage: d.bossPage,
+    teamIdSeq: d.teamIdSeq,
+  };
+}
+
 function persistUserData() {
   if (meta.currentUid == null) return;
-  const charData = {};
-  characters.forEach(char => {
-    charData[char.id] = { owned: !!char.owned, chain: char.chain, weapon: char.weapon };
-  });
   // 写入失败不抛出：界面照常响应，只提示一次「没存进去」，不让用户刷新后才发现丢数据
-  writeStore(`userData_${meta.currentUid}`, JSON.stringify({
-    v: SCHEMA_VERSION,
-    charData,
-    teams,
-    extraUseChars: [...extraUseChars],
-    bossPage,
-    teamIdSeq,
-  }));
+  writeStore(`userData_${meta.currentUid}`, JSON.stringify(snapshotUserData(meta.currentUid)));
   saveMeta();
   writeStore('globalShowAttr', showAttr.toString());
 }
@@ -434,6 +466,35 @@ function defaultUserName() {
 function ensureUser() {
   if (meta.users.length > 0) return;
   addUser(defaultUserName(), true);
+}
+
+// ================= 复制用户 =================
+// 「原名_复制N」：N 取最小的未占用序号。
+// 名字本身带 _复制N 时先剥掉 —— 否则「复制一份复制体」会得到 用户1_复制1_复制1，
+// 序号一层层套下去越看越乱，而它本质仍是从 用户1 派生的第 N 份。
+function copyUserName(name) {
+  const base = name.replace(/_复制\d+$/, '') || name;
+  const used = new Set(meta.users.map(u => u.name));
+  let n = 1;
+  while (used.has(`${base}_复制${n}`)) n++;
+  return `${base}_复制${n}`;
+}
+
+// 复制用户：整份数据一起拷（角色库 + 队伍 + 额外疲劳 + 页面3 排布 + 队伍 id 计数器）。
+// 队伍 id 原样保留、不重新编号：复制体是独立的命名空间，页面3 的块靠 teamId 引用
+// 它自己的队伍，重编号还得把 bossPage 里的引用逐条改，反而多一处能错的地方。
+// 不自动切到复制体（见调用方注释）。
+function duplicateUser(uid, name) {
+  const snap = snapshotUserData(uid);
+  const newUid = addUser(name, false);
+  // addUser 已经把用户挂进 meta.users 并落盘；这里写数据失败就把它撤掉，
+  // 别在列表里留一个点进去空白的壳（seq 不回退：uid 只增不复用）
+  if (!writeStore(`userData_${newUid}`, JSON.stringify(snap))) {
+    meta.users = meta.users.filter(u => u.uid !== newUid);
+    saveMeta();
+    return null;
+  }
+  return newUid;
 }
 
 // ================= 多标签页同步 =================
