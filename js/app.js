@@ -285,7 +285,11 @@ function startRename(row, u) {
 
 // ================= 导入 / 导出 / 删除 =================
 // 导出（对指定用户）
+// 导出窗口对谁打开：窗口是共用的，得记住当前目标，否则「导出为文件」会把别的人导出去
+let exportUid = null;
+
 function openExport(uid) {
+  exportUid = uid;
   const code = encodeUserState(uid);
   document.getElementById('exportCodeLine').textContent = code;
   // 链接用「当前站点根 + #码」，不再硬编码 pages.dev：换域名/换子路径都不需要改代码，
@@ -378,18 +382,44 @@ function backupFileName() {
   return `鸣潮矩阵编队_备份_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
 }
 
-function exportAllUsers() {
-  const data = buildBackup();
+// 单人导出的文件名里带用户名，所以要先洗一遍：Windows 不允许 \ / : * ? " < > |，
+// 名字里有斜杠会被浏览器替换掉（各浏览器换法还不一样），统一换成下划线更可控
+function userBackupFileName(name) {
+  const safe = String(name).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 40) || '未命名用户';
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `鸣潮矩阵编队_${safe}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+}
+
+// 落成文件：两个导出入口共用（blob + 临时 <a>）。
+// 立刻 revoke 会让部分浏览器来不及读这个 blob，推迟一拍。
+function downloadJson(data, filename) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = backupFileName();
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  // 立刻 revoke 会让部分浏览器来不及读这个 blob，推迟一拍
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function exportAllUsers() {
+  const data = buildBackup();
+  downloadJson(data, backupFileName());
   showToast(`已导出 ${data.users.length} 个用户`);
+}
+
+// 单人导出（用户行 ⋯ → 导出 → 导出为文件）：给出去的文件带 scope:'user'，
+// 导入端认了这个标识就只提供「追加」，不会出现「拿单人文件覆盖全库」这条路。
+// 函数名不叫 exportUserFile —— 那和按钮 id 同名会让 window 上的引用变得可疑
+function exportUserDataFile(uid) {
+  const data = buildUserBackup(uid);
+  if (!data) { showToast('导出失败：找不到该用户'); return; }
+  const u = meta.users.find(x => x.uid === uid);
+  downloadJson(data, userBackupFileName(u.name));
+  // 不关窗：同一个窗口里还有分享码与链接，用户可能要接着复制
+  showToast(`已导出「${u.name}」的数据文件`);
 }
 
 // 选中文件 → 校验并弹窗确认。解析失败直接 toast，不弹一个没有内容的空窗让用户猜。
@@ -404,19 +434,40 @@ function openBackupFile(file) {
     const parsed = parseBackup(raw);
     if (!parsed.ok) { showToast(`导入失败：${parsed.error}`); return; }
     pendingBackup = parsed;
-    // 先让用户看清「这份文件里到底是什么」，再决定覆盖还是合并
+    // 先让用户看清「这份文件里到底是什么」，再决定覆盖还是合并。
+    // 单人文件直接报名字，比「文件里有 1 个用户」有用得多（重名时用户要判断是不是同一份）
     const when = parsed.exportedAt ? new Date(parsed.exportedAt) : null;
-    const parts = [`文件里有 <b>${parsed.users.length}</b> 个用户`];
+    const parts = [parsed.scope === 'user'
+      ? `文件是「<b>${parsed.users[0].name}</b>」的数据`
+      : `文件里有 <b>${parsed.users.length}</b> 个用户`];
     if (when && !isNaN(when.getTime())) parts.push(`导出于 ${when.toLocaleString('zh-CN')}`);
     if (parsed.skipped) parts.push(`另有 ${parsed.skipped} 条记录无法识别，将被跳过`);
     document.getElementById('fileImportInfo').innerHTML = parts.join(' · ');
-    resetReplaceConfirm();
+    renderConfirmPane(parsed);
     // 只有文件确实解析成功才进第二屏：选错文件时用户还留在第一屏，
     // 可以直接重选，不用关窗重来
     showBackupPane('confirm');
     showModal('backupModal');
   };
   reader.readAsText(file);
+}
+
+// 第二屏给什么选项，取决于文件类型：
+//   单人文件（scope:'user'）—— 只给「导入」（追加），覆盖按钮直接不出现。
+//     用一个人的文件去覆盖全库 = 把其他用户全删了，没有任何正当用法，不留这条路。
+//   整份备份 —— 合并 / 覆盖二选一。
+function renderConfirmPane(parsed) {
+  const one = parsed.scope === 'user';
+  document.getElementById('backupOneNote').hidden = !one;
+  document.getElementById('backupAllNote').hidden = one;
+  const mergeBtn = document.getElementById('fileImportMerge');
+  mergeBtn.textContent = one ? '导入' : '合并导入';
+  // 单人文件只剩这一个动作，按钮撑满整行；两个按钮的场合保持并排靠右
+  mergeBtn.classList.toggle('backup-wide', one);
+  document.getElementById('fileImportReplace').hidden = one;
+  // 覆盖按钮被藏起来时也把它的「确认覆盖？」倒计时清掉，
+  // 否则下次开整份备份会看到一个已经武装好的确认态
+  resetReplaceConfirm();
 }
 
 function applyBackup(mode) {
@@ -486,6 +537,11 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
 });
 document.getElementById('fileImportMerge').addEventListener('click', () => applyBackup('merge'));
 document.getElementById('fileImportReplace').addEventListener('click', onReplaceClick);
+
+// 导出窗口里的「导出为文件」：目标是窗口打开时记下的那个用户（窗口是共用的）
+document.getElementById('exportUserFile').addEventListener('click', () => {
+  if (exportUid != null) exportUserDataFile(exportUid);
+});
 
 // ================= 清空全部数据 =================
 function clearAllData() {

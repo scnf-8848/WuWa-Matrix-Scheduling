@@ -508,14 +508,33 @@ const BACKUP_FORMAT = 1;
 
 // 导出：把全部用户拼成一份可直接落成文件的快照。
 // 当前用户读内存（含还没落盘的改动）、其余读存储 —— 与「复制用户」同一个口径。
+// scope 是给导入端认的：'all' 整份备份（可合并可覆盖）、'user' 单人文件（只能追加）。
+// 不靠「users 只有一条」来推断单人文件 —— 只有一个用户的人做整份备份，一样是单条。
 function buildBackup() {
   return {
     app: BACKUP_APP,
     format: BACKUP_FORMAT,
     schema: SCHEMA_VERSION,
+    scope: 'all',
     exportedAt: new Date().toISOString(),
     currentUid: meta.currentUid,
     users: meta.users.map(u => ({ uid: u.uid, name: u.name, data: snapshotUserData(u.uid) })),
+  };
+}
+
+// 单人导出：同一种文件结构、只装一个人，导入端认 scope 后只给「追加」。
+// 用它与「全部用户」区分开，是为了让「拿别人的单人文件覆盖自己全库」这件事在界面上根本不存在。
+function buildUserBackup(uid) {
+  const u = meta.users.find(x => x.uid === uid);
+  if (!u) return null;
+  return {
+    app: BACKUP_APP,
+    format: BACKUP_FORMAT,
+    schema: SCHEMA_VERSION,
+    scope: 'user',
+    exportedAt: new Date().toISOString(),
+    currentUid: uid,
+    users: [{ uid, name: u.name, data: snapshotUserData(uid) }],
   };
 }
 
@@ -545,6 +564,9 @@ function parseBackup(raw) {
     ok: true,
     users,
     skipped,
+    // 单人标识只在「确实只有一条」时采信：手改过的文件若标了 user 却塞了多条，
+    // 按整份备份处理更安全（那才是它的实际内容）
+    scope: raw.scope === 'user' && users.length === 1 ? 'user' : 'all',
     exportedAt: typeof raw.exportedAt === 'string' ? raw.exportedAt : null,
     currentUid: Number(raw.currentUid) || null,
   };

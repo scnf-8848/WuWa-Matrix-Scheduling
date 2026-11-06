@@ -112,7 +112,9 @@
     <!-- 用户行的「⋯」二级菜单：整个页面共用一个，按需填充并定位 -->
     <div id="userMenu" class="us-menu hidden"></div>
 
-    <!-- 导出小窗 -->
+    <!-- 导出小窗：两条通道分开写，各自说清「含什么」。
+         原来是一段「包含 / 不含」的清单，用户得自己判断哪条属于哪边 ——
+         分享码轻（只有角色库，发给人同步状态），文件全（含配队，可再导入） -->
     <div id="exportModal" class="overlay">
         <div class="modal small-modal">
             <div class="modal-title">
@@ -120,9 +122,17 @@
                 <button class="close-x" data-close>×</button>
             </div>
             <div class="modal-body">
-                <div class="msg hint">包含：角色有无、共鸣链数、专武有无<br>不含：专武精炼、编队方案</div>
-                <div class="code-row"><span class="code-label">分享码：</span><span class="code-value" id="exportCodeLine"></span><button class="copy-btn" data-copy="exportCodeLine">复制</button></div>
-                <div class="code-row"><span class="code-label">链接：</span><span class="code-value" id="exportUrlLine"></span><button class="copy-btn" data-copy="exportUrlLine">复制</button></div>
+                <div class="export-sec">
+                    <div class="export-sec-title">分享码</div>
+                    <div class="backup-note">只含角色库：持有 / 共鸣链 / 专武，不含配队与精炼。</div>
+                    <div class="code-row"><span class="code-label">分享码：</span><span class="code-value" id="exportCodeLine"></span><button class="copy-btn" data-copy="exportCodeLine">复制</button></div>
+                    <div class="code-row"><span class="code-label">链接：</span><span class="code-value" id="exportUrlLine"></span><button class="copy-btn" data-copy="exportUrlLine">复制</button></div>
+                </div>
+                <div class="export-sec">
+                    <div class="export-sec-title">文件</div>
+                    <div class="backup-note">含这个用户的全部数据：角色库、配队、额外疲劳、页面 3 排布。<br>存成 json，可在「导入 / 导出」里再导入。</div>
+                    <button class="modal-btn btn-primary export-file-btn" id="exportUserFile">导出为文件</button>
+                </div>
             </div>
         </div>
     </div>
@@ -192,7 +202,7 @@
                         <br>
                         <b>导入 / 还原</b>：读回这种文件。可以<b>合并</b>到现有用户后面，也可以<b>覆盖</b>——覆盖会先清空现有全部用户。
                         <br>
-                        <span class="backup-fine">用户行 <b>⋯</b> 里的「导入 / 导出」是另一回事：那是单人的分享码，只有角色库，不含配队。</span>
+                        <span class="backup-fine">用户行 <b>⋯</b> 的「导出」里另有分享码（单人、只有角色库）和单人文件（格式相同，导入时只会新增一位）。</span>
                     </div>
                     <div class="backup-actions">
                         <button class="modal-btn btn-primary" id="fileExportBtn">导出/备份</button>
@@ -202,10 +212,15 @@
                         <button class="modal-btn btn-ghost" data-close>取消</button>
                     </div>
                 </div>
-                <!-- 第二屏：文件已选好，确认怎么处理 -->
+                <!-- 第二屏：文件已选好，确认怎么处理。
+                     单人文件（用户行 ⋯ → 导出为文件）只给「导入」，不给覆盖：
+                     拿一份单人文件去覆盖全库，等于把其他用户全删了，没有任何正当用法 -->
                 <div id="backupConfirm" class="backup-pane" hidden>
                     <div class="backup-note" id="fileImportInfo"></div>
-                    <div class="backup-note">
+                    <div class="backup-note" id="backupOneNote" hidden>
+                        这是<b>单个用户</b>的文件：只会往列表里新增一位，现有用户不受影响。
+                    </div>
+                    <div class="backup-note" id="backupAllNote">
                         <b>合并</b>：保留现有用户，把文件里的用户追加到列表末尾（重名自动加序号）。<br>
                         <b>覆盖</b>：先清空现有<b>全部用户</b>，再按文件还原。<strong>不可撤销</strong>。
                     </div>

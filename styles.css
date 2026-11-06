@@ -1008,6 +1008,25 @@ body.us-collapsed #sidebarExpand { display: flex; }
 .backup-actions { display: flex; gap: 8px; }
 .backup-actions .modal-btn { flex: 1 1 0; padding: 9px 10px; }
 
+/* 单人文件只剩「导入」一个动作，让它撑满整行；
+   两个按钮的场合（整份备份）仍并排靠右，别把主次拉开 */
+.modal-btn.backup-wide { width: 100%; padding: 9px 10px; }
+
+/* ===== 导出窗口：分享码 / 文件两段 =====
+   段间一条分隔线、各自带说明。原来是一整段「包含 / 不含」的清单，
+   读者得自己判断哪条属于分享码、哪条属于文件 */
+.export-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #2f2f2f;
+}
+.export-sec:first-child { padding-top: 0; border-top: none; }
+.export-sec-title { font-size: 13px; font-weight: 600; color: #e5e5e5; }
+/* 文件导出是并列的第二条通道，做成全宽按钮 —— 不该缩成一个小链接挂在角落 */
+.export-file-btn { width: 100%; padding: 9px 10px; }
+
 /* 轻提示：用于「保存失败」「链接里的分享码无效」这类无法挂到某个输入框上的失败提示。
    层级高于模态窗(1000)、低于拖拽幽灵(9999)，所以在导入弹窗里也能看见。 */
 .toast {
