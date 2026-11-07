@@ -4,7 +4,7 @@
 //
 // 分享码 = [按 6bit 打包的 base64url 载荷] + [校验和字符]
 //
-// 规范顺序：已实装角色（id <= 1000）按 id 升序。新增角色只会拿更大的 id，
+// 规范顺序：characters.js 全部角色按 id 升序。新增角色只会拿更大的 id，
 //           所以老码永远只对应规范顺序的前若干位，新角色自动视为未持有。
 //           编码只写到「最后一个持有角色」为止，其后的角色不占任何比特
 //           —— 因此码里没有「角色数 N」字段，也就没有角色数上限。
@@ -53,9 +53,9 @@ function calcChecksum(str) {
   return B64[sum];
 }
 
-// 已实装角色，按 id 升序 = 分享码规范顺序
+// 规范角色集 = characters.js 全部角色，按 id 升序 = 分享码规范顺序
 function canonicalChars() {
-  return characterTemplates.filter(t => t.id <= 1000).slice().sort((a, b) => a.id - b.id);
+  return characterTemplates.slice().sort((a, b) => a.id - b.id);
 }
 
 const bit4 = v => v.toString(2).padStart(4, '0');
@@ -98,7 +98,7 @@ function packBits(bits) {
 }
 
 // 角色状态表 → 分享码（纯函数）。states: [{id, owned, chain, weapon}]；extraIds: 额外疲劳的 id 集合。
-// 规范顺序之外的 id（未实装角色）自动忽略 —— 它们本来就不参与编码。
+// characters.js 之外的 id（未知角色）自动忽略 —— 它们不在编码范围内。
 function encodeCharStates(states, extraIds) {
   const byId = new Map((states || []).map(s => [s.id, s]));
   const chars = canonicalChars().map(t => {
