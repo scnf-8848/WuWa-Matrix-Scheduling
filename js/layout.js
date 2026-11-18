@@ -43,6 +43,18 @@ function teamLayoutCandidate(colCount, availH, width, n, opts) {
   return { colCount, perCol, padV, slot, rowBudget };
 }
 
+// 页面2 的尺寸变量写到 body，而不是 #teamSection 的内联样式：
+// 拖拽幽灵挂在 body 下（见 drag.js 的 makeGhostFrom），只有写在 body 才能继承到同一套
+// 头像尺寸 / 行内距 / 字号比例；否则幽灵退回 CSS 兜底值（50px），头像会溢出队伍块。
+// 这三个变量全站只有页面2 使用（.slot / .team-row / .team-handle / .team-label）。
+// 无参数 = 兜底值：没量到尺寸或没有队伍时写回默认，避免残留上一次布局或上一个用户的数值。
+function setTeamRowVars(slot, padV, uiScale) {
+  const s = document.body.style;
+  s.setProperty('--slot-size', `${slot == null ? TL_MAX_SLOT : slot}px`);
+  s.setProperty('--row-pad-v', `${padV == null ? 10 : padV}px`);
+  s.setProperty('--row-ui-scale', `${uiScale == null ? 1 : uiScale}`);
+}
+
 function updateLayoutScale() {
   const section = document.getElementById('teamSection');
   const cs = getComputedStyle(section);
@@ -56,11 +68,11 @@ function updateLayoutScale() {
   // 防御：0 支队伍时任何行数推算都没有意义（perCol 会算成 0，产生非法 grid-template-rows）
   if (!n) {
     section.style.gridTemplateRows = '';
-    section.style.setProperty('--slot-size', `${TL_MAX_SLOT}px`);
+    setTeamRowVars();
     return;
   }
   if (availH <= 0 || width <= 0) {
-    section.style.setProperty('--slot-size', `${TL_MAX_SLOT}px`);
+    setTeamRowVars();
     return;
   }
 
@@ -105,9 +117,7 @@ function updateLayoutScale() {
   const uiScale = Math.max(0.78, Math.min(1,
       0.78 + (best.slot - 22) / (TL_MAX_SLOT - 22) * (1 - 0.78)));
 
-  section.style.setProperty('--slot-size', `${best.slot}px`);
-  section.style.setProperty('--row-pad-v', `${best.padV / 2}px`);
-  section.style.setProperty('--row-ui-scale', `${uiScale.toFixed(3)}`);
+  setTeamRowVars(best.slot, best.padV / 2, uiScale.toFixed(3));
   // 行高按「实际头像 + 上下边距」回算，而不是直接用 rowBudget：
   // 列宽先卡住头像时（两列、面板窄），rowBudget 与 slot 之间那段差额只会变成块内
   // 上下的白留 —— 头像 48 + 行高 72 就是上下各 12px 的空壳，队伍块显得空。

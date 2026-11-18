@@ -146,7 +146,8 @@ const TeamDrag = createDrag({
     c.w = r.width; c.h = r.height;
     c.ghost = makeGhostFrom(el);
     c.ghost.style.width = `${r.width}px`;
-    c.ghost.style.height = `${r.height}px`;
+    // 高度交给内容撑开：幽灵比原行多出 2px 描边（border-box 内扣），
+    // 钉死成 r.height 会把槽位裁掉几像素，头像又探到块外。
     // 源行移出网格流（display:none），其它队伍实时重排
     el.style.display = 'none';
     // 目标落位：空白块 + 绿色虚线描边；作为网格项插入，自动把其它队伍挤开
