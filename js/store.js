@@ -25,7 +25,8 @@ let showAttr = true;
 let showScore = true;   // 页面3 右面板：是否在队伍块上方显示分数（全局开关）
 // 额外疲劳角色（id 集合）
 let extraUseChars = new Set();
-// 页面3（BOSS 分配）：{ bossNames:[5个名称], rounds:[[{teamId,x,w}...],...] }
+// 页面3（BOSS 分配）：{ rounds:[[{teamId,x,w}...],...] }
+// BOSS 名称不是数据：它是 boss-model.js 的常量 BOSS_DEF_NAMES，存档里不再保存。
 // x/w 为 0~1 连续比例：x=块左端占轨道宽度的比例，w=块宽度比例（宽度即该队打掉的血量占比）
 // 初始为 null：loadUser 里由 normalizeBossPage 补成默认值（少一次默认值的双份定义）
 let bossPage = null;
@@ -364,7 +365,8 @@ function snapshotUserData(uid) {
     charData: d.charData,
     teams: d.teams,
     extraUseChars: [...d.extraUseChars],
-    bossPage: d.bossPage,
+    // 过一遍规范化：旧存档里遗留的 bossNames 不会随导出/复制再写出去
+    bossPage: normalizeBossPage(d.bossPage),
     teamIdSeq: d.teamIdSeq,
   };
 }
@@ -421,7 +423,8 @@ function importStateToUser(uid, code) {
     charData: d.charData,
     teams: d.teams,
     extraUseChars: [...d.extraUseChars],
-    bossPage: d.bossPage,
+    // 过一遍规范化：旧存档里遗留的 bossNames 不会随这次写回再落盘
+    bossPage: normalizeBossPage(d.bossPage),
     teamIdSeq: d.teamIdSeq,
   }))) {
     return { ok: false, error: '写入失败：浏览器存储不可用或空间已满，本次导入未生效' };

@@ -263,11 +263,11 @@ function renderBossTeamList() {
   });
 }
 
-// BOSS 标题栏：5 个固定名称（不可编辑）
+// BOSS 标题栏：5 个固定名称（不可编辑，来自 boss-model.js 的常量）
 function renderBossHeader() {
   const row = document.getElementById('bossHeaderRow');
   row.innerHTML = '';
-  bossPage.bossNames.forEach((name) => {
+  BOSS_DEF_NAMES.forEach((name) => {
     const cell = document.createElement('div');
     cell.className = 'boss-name';
     cell.textContent = name;

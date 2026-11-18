@@ -1,12 +1,13 @@
 // ================= 页面3 数据模型：排布、续接、计分 =================
-// 数据模型：bossPage = { bossNames:[5], rounds:[ [ {teamId, x, w} ... ], ... ], autoOff, autoOffTail }
+// 数据模型：bossPage = { rounds:[ [ {teamId, x, w} ... ], ... ], autoOff, autoOffTail }
 //   x : 左端位置占轨道宽度比例 0~1（连续值，非列对齐）
 //   w : 宽度占轨道宽度比例（连续值）——宽度即该队伍打掉的血量占比
 //   多个队伍在同一 BOSS 区间内首尾相接、可跨列；跨轮次用“队伍复用（拖两次）”表达
+//   BOSS 名称不在数据模型里：它是固定常量 BOSS_DEF_NAMES，改版时由开发者改代码。
 // 本文件是纯模型层：不碰 DOM（只有 normalizeBossPage 之外没有副作用），便于单独测试。
 
-// 5 个 BOSS 的初始名称（游戏内 BOSS 更新时手动修改）
-const BOSS_DEF_NAMES = ['燎照之骑', '封庭械囿', '无冠者', '天傀劫煞', '矩阵奇藏'];
+// 5 个 BOSS 的名称（唯一来源）：页面3 的标题栏与得分明细都读这里，改版时直接改这一行
+const BOSS_DEF_NAMES = ['飞廉之猩', '达妮娅', '无冠者', '辛吉勒姆', '矩阵奇藏'];
 
 const BOSS_MIN_W = 0.07;   // 最小宽度（比例），保证头像仍可辨认
 const BOSS_DEF_W = 0.2;    // 从左侧拖入时的默认宽度（约等于一个 BOSS 列）
@@ -111,7 +112,6 @@ function bossTotalScore() {
 function bossTeamBreakdown(teamId) {
   if (!teamHasFighters(teamId)) return [];
   const rounds = (bossPage && bossPage.rounds) || [];
-  const names = (bossPage && bossPage.bossNames) || BOSS_DEF_NAMES;
   const colW = 1 / BOSS_COLS;
   const rows = [];
   rounds.forEach((round, rIndex) => {
@@ -139,7 +139,7 @@ function bossTeamBreakdown(teamId) {
       rows.push({
         rIndex,
         col: c,
-        name: names[c] || BOSS_DEF_NAMES[c],
+        name: BOSS_DEF_NAMES[c],
         pct,
         score: Math.round(frac * bossColScore(rIndex, c) / SCORE_UNIT) * SCORE_UNIT,
         kill: kill && c === BOSS_COLS - 1,
@@ -347,18 +347,15 @@ function bossNeighborBounds(round, index) {
 function defaultBossPage() {
   // autoOff：被用户点成「不生效」的前向自动占位所在轮次下标集合
   // autoOffTail：反向（尾部）自动占位的「不生效」轮次下标集合
-  return { bossNames: BOSS_DEF_NAMES.slice(), rounds: [[]], autoOff: [], autoOffTail: [] };
+  return { rounds: [[]], autoOff: [], autoOffTail: [] };
 }
 
-// 规范化：补齐 5 个 BOSS 名、钳制 x/w（兼容旧的 col/span 格式）。
+// 规范化：钳制 x/w（兼容旧的 col/span 格式）。
+// 旧存档里遗留的 bossNames 字段在这里被静默丢弃：名称已改为常量，既不读取也不写回。
 // 失效的队伍引用一律保留，不在加载时删除 —— 删除动作只由用户在界面上的 ✕ 触发。
 function normalizeBossPage(bp) {
   const def = defaultBossPage();
   if (!bp) return def;
-  const names = (Array.isArray(bp.bossNames) && bp.bossNames.length === 5)
-    ? bp.bossNames.slice() : def.bossNames.slice();
-  // 旧的占位名（BOSS-1…BOSS-5）迁移为新的默认名
-  names.forEach((n, i) => { if (!n || n === `BOSS-${i + 1}`) names[i] = BOSS_DEF_NAMES[i]; });
   let rounds = (Array.isArray(bp.rounds) && bp.rounds.length) ? bp.rounds : [[]];
   // 队伍已被删除的块【不】在这里丢弃：原样保留，由页面3 用「队伍已失效」标示，
   // 让用户自己决定移除。避免一次加载就把整份排布永久抹掉。
@@ -400,5 +397,5 @@ function normalizeBossPage(bp) {
   const autoOffTail = Array.isArray(bp.autoOffTail)
     ? bp.autoOffTail.filter(n => Number.isInteger(n) && n >= 0 && n < rounds.length - 1)
     : [];
-  return { bossNames: names, rounds, autoOff, autoOffTail };
+  return { rounds, autoOff, autoOffTail };
 }
